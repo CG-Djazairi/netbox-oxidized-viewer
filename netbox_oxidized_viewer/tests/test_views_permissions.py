@@ -15,9 +15,10 @@ from django.test import TestCase, RequestFactory
 
 from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
 
-from netbox_oxidized_viewer.models import OxidizedSource
+from netbox_oxidized_viewer.models import ConfigSnapshot, OxidizedSource
 from netbox_oxidized_viewer.views import (
     CommitConfigDownloadView,
+    DashboardView,
     DeviceConfigDownloadView,
     DiffDownloadView,
 )
@@ -99,3 +100,59 @@ class TestDownloadViewPermissions(TestCase):
                 DiffDownloadView, self.plain_user,
                 pk=self.device.pk, sha_old=self.sha1, sha_new=self.sha2,
             )
+
+
+class TestDashboardView(TestCase):
+    """
+    The dashboard is served from the ConfigSnapshot index (no git access) and
+    must only list devices the requesting user can view.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        import datetime
+
+        site = Site.objects.create(name='Site', slug='site')
+        manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
+        device_type = DeviceType.objects.create(
+            manufacturer=manufacturer, model='SR Linux', slug='sr-linux'
+        )
+        role = DeviceRole.objects.create(name='Router', slug='router')
+        cls.superuser = get_user_model().objects.create_superuser('dash-admin')
+        cls.plain_user = get_user_model().objects.create_user('dash-nobody')
+        # Repo path doesn't need to exist: the dashboard never opens git.
+        cls.source = OxidizedSource.objects.create(
+            name='Dash', git_repo_path='/tmp/does-not-exist-dash'
+        )
+        for i, name in enumerate(('spine1', 'leaf1')):
+            device = Device.objects.create(
+                name=name, site=site, device_type=device_type, role=role
+            )
+            ConfigSnapshot.objects.create(
+                device=device,
+                source=cls.source,
+                content=f'hostname {name}\n',
+                commit_sha=str(i) * 40,
+                commit_timestamp=datetime.datetime(
+                    2024, 1, 1 + i, tzinfo=datetime.timezone.utc
+                ),
+                commit_subject=f'backup {name}',
+            )
+
+    def _context_for(self, user):
+        request = RequestFactory().get('/')
+        request.user = user
+        view = DashboardView()
+        view.request = request
+        return view.get_context_data()
+
+    def test_lists_indexed_devices_newest_first(self):
+        data = self._context_for(self.superuser)['devices_data']
+        self.assertEqual([d['device'].name for d in data], ['leaf1', 'spine1'])
+        leaf = data[0]
+        self.assertEqual(leaf['filename'], 'leaf1')
+        self.assertEqual(leaf['commit_subject'], 'backup leaf1')
+        self.assertEqual(leaf['commit_sha'], '1' * 40)
+
+    def test_unprivileged_user_sees_nothing(self):
+        self.assertEqual(self._context_for(self.plain_user)['devices_data'], [])

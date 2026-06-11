@@ -7,7 +7,7 @@ from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 from dcim.models import Device
 from . import models, forms, tables, filters
-from .utils import get_backend_and_filename_for_device, get_source
+from .utils import get_backend_and_filename_for_device, get_source, resolve_device_field
 from .services.git_backend import CommitNotFound, FileNotFoundAtCommit, GitBackendError
 
 
@@ -56,20 +56,31 @@ class DashboardView(TemplateView):
         devices_data = []
         source = get_source()
         if source:
-            # Only surface devices the requesting user is allowed to view —
-            # otherwise commit metadata leaks for every device in NetBox.
-            devices = Device.objects.restrict(self.request.user, 'view')
-            for dev in devices:
-                backend, filename = get_backend_and_filename_for_device(dev)
-                if backend and filename:
-                    latest = backend.get_latest_commit(filename)
-                    if latest:
-                        devices_data.append({
-                            'device': dev,
-                            'filename': filename,
-                            'latest_commit': latest,
-                        })
-        context['devices_data'] = sorted(devices_data, key=lambda x: x['latest_commit'].timestamp, reverse=True)
+            # Served entirely from the ConfigSnapshot index — a per-device git
+            # history walk here cost O(devices × history) per cold load.
+            # Restricted to viewable devices, otherwise commit metadata leaks
+            # for every device in NetBox.
+            snapshots = (
+                models.ConfigSnapshot.objects
+                .filter(
+                    source=source,
+                    device__in=Device.objects.restrict(self.request.user, 'view'),
+                )
+                .select_related('device')
+                .order_by('-commit_timestamp')
+            )
+            devices_data = [
+                {
+                    'device': snap.device,
+                    'filename': resolve_device_field(snap.device, source.node_name_source),
+                    'commit_sha': snap.commit_sha,
+                    'commit_timestamp': snap.commit_timestamp,
+                    'commit_subject': snap.commit_subject,
+                    'indexed_at': snap.indexed_at,
+                }
+                for snap in snapshots
+            ]
+        context['devices_data'] = devices_data
         return context
 
 

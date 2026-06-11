@@ -73,11 +73,17 @@ class ConfigSnapshot(models.Model):
     )
     content = models.TextField()
     commit_sha = models.CharField(max_length=40)
+    # Denormalized from the indexed commit so list views (dashboard) never have
+    # to walk git history — git is only opened for content and diffs.
+    commit_timestamp = models.DateTimeField(null=True, blank=True)
+    commit_subject = models.CharField(max_length=255, blank=True, default='')
     indexed_at = models.DateTimeField(auto_now=True)
     search_vector = SearchVectorField(null=True)
 
     class Meta:
-        indexes = [GinIndex(fields=['search_vector'])]
+        # Name pinned to match migration 0003 (AddIndexConcurrently) so Django
+        # never tries to rename the production index.
+        indexes = [GinIndex(fields=['search_vector'], name='netbox_oxi_cfgsnapshot_sv_gin')]
 
     def __str__(self):
         return f"Snapshot({self.device_id}, {self.commit_sha[:7]})"

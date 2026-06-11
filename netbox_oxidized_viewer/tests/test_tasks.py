@@ -85,6 +85,29 @@ class TestUpdateConfigSnapshots(TestCase):
         self.assertEqual(set(snaps.values_list('device__name', flat=True)),
                          {'spine1', 'leaf1'})
 
+    def test_commit_metadata_denormalized(self):
+        # The dashboard is served from these columns — they must mirror the
+        # indexed commit, not be left at their defaults.
+        update_config_snapshots(source_pk=self.source.pk)
+        snap = ConfigSnapshot.objects.get(device=self.spine)
+        self.assertEqual(snap.commit_subject, 'backup')
+        self.assertEqual(
+            snap.commit_timestamp,
+            datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
+        )
+
+    def test_backfills_metadata_for_pre_0006_rows(self):
+        # Rows indexed before the metadata columns existed have the same SHA
+        # but NULL commit_timestamp — the job must update them, not skip them.
+        update_config_snapshots(source_pk=self.source.pk)
+        ConfigSnapshot.objects.filter(device=self.spine).update(
+            commit_timestamp=None, commit_subject=''
+        )
+        update_config_snapshots(source_pk=self.source.pk)
+        snap = ConfigSnapshot.objects.get(device=self.spine)
+        self.assertIsNotNone(snap.commit_timestamp)
+        self.assertEqual(snap.commit_subject, 'backup')
+
     def test_orphan_device_not_indexed(self):
         update_config_snapshots(source_pk=self.source.pk)
         self.assertFalse(

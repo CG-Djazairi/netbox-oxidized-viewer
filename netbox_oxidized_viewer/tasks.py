@@ -45,7 +45,9 @@ def update_config_snapshots(source_pk=None):
                 continue
 
             existing = ConfigSnapshot.objects.filter(device=device).first()
-            if existing and existing.commit_sha == latest.sha:
+            # commit_timestamp check backfills rows indexed before the commit
+            # metadata columns existed (migration 0006).
+            if existing and existing.commit_sha == latest.sha and existing.commit_timestamp:
                 skipped += 1
                 continue
 
@@ -65,6 +67,8 @@ def update_config_snapshots(source_pk=None):
                     'source': source,
                     'content': content,
                     'commit_sha': latest.sha,
+                    'commit_timestamp': latest.timestamp,
+                    'commit_subject': latest.subject[:255],
                 },
             )
             updated += 1

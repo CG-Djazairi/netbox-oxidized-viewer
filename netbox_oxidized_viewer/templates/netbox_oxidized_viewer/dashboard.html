@@ -26,8 +26,8 @@
                         <td><a href="{{ data.device.get_absolute_url }}">{{ data.device.name }}</a></td>
                         <td><code>{{ data.filename }}</code></td>
                         <td>
-                            {{ data.latest_commit.timestamp|date:"Y-m-d H:i:s T" }}
-                            <br><small class="text-muted"><code>{{ data.latest_commit.sha|slice:":7" }}</code> {{ data.latest_commit.subject }}</small>
+                            {{ data.commit_timestamp|date:"Y-m-d H:i:s T" }}
+                            <br><small class="text-muted"><code>{{ data.commit_sha|slice:":7" }}</code> {{ data.commit_subject }}</small>
                         </td>
                         <td class="text-end">
                             <a href="{% url 'plugins:netbox_oxidized_viewer:device_oxidized_config' pk=data.device.pk %}" class="btn btn-sm btn-ghost-primary">Config History</a>
@@ -35,7 +35,10 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="4" class="text-center text-muted">No backed-up devices found.</td>
+                        <td colspan="4" class="text-center text-muted">
+                            No indexed devices yet. The index refreshes on a schedule —
+                            run <code>manage.py reindex_oxidized</code> to build it now.
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
