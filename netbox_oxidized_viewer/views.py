@@ -8,7 +8,7 @@ from utilities.views import ViewTab, register_model_view
 from dcim.models import Device
 from . import models, forms, tables, filters
 from .utils import get_backend_and_filename_for_device, get_source
-from .services.git_backend import CommitNotFound, FileNotFoundAtCommit
+from .services.git_backend import CommitNotFound, FileNotFoundAtCommit, GitBackendError
 
 
 def _hunks_to_side_by_side(hunks):
@@ -172,7 +172,9 @@ class ConfigDiffView(generic.ObjectView):
                             break
                 if sha_old:
                     diff_data = backend.get_diff(filename, sha_old, sha_new)
-            except Exception as e:
+            except GitBackendError as e:
+                # Bad SHA in the URL, file missing at a commit, etc. — user
+                # input problems.  Anything else is a bug and should 500.
                 error = str(e)
 
         if diff_data:
@@ -204,7 +206,7 @@ class DeviceConfigDownloadView(View):
             raise Http404
         try:
             content = backend.get_file_content(filename, latest.sha)
-        except Exception:
+        except GitBackendError:
             raise Http404
         response = HttpResponse(content, content_type='text/plain; charset=utf-8')
         response['Content-Disposition'] = f'attachment; filename="{filename}.txt"'
@@ -219,7 +221,7 @@ class CommitConfigDownloadView(View):
             raise Http404
         try:
             content = backend.get_file_content(filename, sha)
-        except Exception:
+        except GitBackendError:
             raise Http404
         response = HttpResponse(content, content_type='text/plain; charset=utf-8')
         response['Content-Disposition'] = f'attachment; filename="{filename}-{sha[:7]}.txt"'
@@ -234,7 +236,7 @@ class DiffDownloadView(View):
             raise Http404
         try:
             diff_data = backend.get_diff(filename, sha_old, sha_new)
-        except Exception:
+        except GitBackendError:
             raise Http404
 
         lines = [f"--- a/{filename}", f"+++ b/{filename}"]
