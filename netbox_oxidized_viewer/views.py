@@ -189,9 +189,13 @@ class ConfigDiffView(generic.ObjectView):
         }
 
 
+# The download views are plain Django Views (no NetBox generic-view mixins), so
+# object-level RBAC does not come for free: each lookup must go through
+# .restrict() or a user could fetch any device's config by guessing PKs.
+
 class DeviceConfigDownloadView(View):
     def get(self, request, pk):
-        device = get_object_or_404(Device, pk=pk)
+        device = get_object_or_404(Device.objects.restrict(request.user, 'view'), pk=pk)
         backend, filename = get_backend_and_filename_for_device(device)
         if not backend:
             raise Http404
@@ -209,7 +213,7 @@ class DeviceConfigDownloadView(View):
 
 class CommitConfigDownloadView(View):
     def get(self, request, pk, sha):
-        device = get_object_or_404(Device, pk=pk)
+        device = get_object_or_404(Device.objects.restrict(request.user, 'view'), pk=pk)
         backend, filename = get_backend_and_filename_for_device(device)
         if not backend:
             raise Http404
@@ -224,7 +228,7 @@ class CommitConfigDownloadView(View):
 
 class DiffDownloadView(View):
     def get(self, request, pk, sha_old, sha_new):
-        device = get_object_or_404(Device, pk=pk)
+        device = get_object_or_404(Device.objects.restrict(request.user, 'view'), pk=pk)
         backend, filename = get_backend_and_filename_for_device(device)
         if not backend:
             raise Http404
