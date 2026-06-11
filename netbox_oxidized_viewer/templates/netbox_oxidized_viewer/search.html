@@ -1,0 +1,84 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Config Search{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h2 class="mb-3">Configuration Search</h2>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="get">
+                <div class="input-group">
+                    <input type="text" name="q" class="form-control" placeholder="Search across all device configurations…" value="{{ query }}" autofocus>
+                    <button type="submit" class="btn btn-primary">Search</button>
+                </div>
+                {% if query %}
+                <div class="mt-2 text-muted small">
+                    {% if total_count %}
+                    {{ total_count }} device{{ total_count|pluralize }} matched <strong>"{{ query }}"</strong>
+                    {% if page_obj.paginator.num_pages > 1 %}
+                    — page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+                    {% endif %}
+                    {% else %}
+                    No results for <strong>"{{ query }}"</strong>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    {% for result in results %}
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>
+                {% if result.device %}
+                <a href="{% url 'plugins:netbox_oxidized_viewer:device_oxidized_config' pk=result.device.pk %}">
+                    <strong>{{ result.device.name }}</strong>
+                </a>
+                {% else %}
+                <span class="text-muted small">(no device match)</span>
+                {% endif %}
+            </span>
+            <span class="text-muted small">{{ result.indexed_at|date:"Y-m-d H:i" }}</span>
+        </div>
+        <div class="card-body p-0">
+            {# Postgres-generated headline with <mark> tags around matches #}
+            <div class="px-3 py-2" style="font-family:var(--bs-font-monospace);font-size:0.85em;white-space:pre-wrap;">{{ result.headline|safe }}</div>
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav aria-label="Search results pages">
+        <ul class="pagination justify-content-center">
+            {% if page_obj.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?q={{ query|urlencode }}&page={{ page_obj.previous_page_number }}">Previous</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">Previous</span></li>
+            {% endif %}
+
+            <li class="page-item disabled">
+                <span class="page-link">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+            </li>
+
+            {% if page_obj.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?q={{ query|urlencode }}&page={{ page_obj.next_page_number }}">Next</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">Next</span></li>
+            {% endif %}
+        </ul>
+    </nav>
+    {% endif %}
+
+</div>
+{% endblock content %}

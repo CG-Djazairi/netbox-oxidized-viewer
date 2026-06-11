@@ -1,0 +1,6 @@
+include LICENSE
+include README.md
+recursive-include netbox_oxidized_viewer/templates *
+recursive-include netbox_oxidized_viewer/static *
+prune dev
+prune benchmarks

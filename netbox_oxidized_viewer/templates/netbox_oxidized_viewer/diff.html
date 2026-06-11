@@ -1,0 +1,146 @@
+{% extends 'generic/object.html' %}
+
+{% block head %}
+{{ block.super }}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<style>
+  /* Reset Prism background on inline code inside diff lines */
+  .diff-code { background: none !important; padding: 0 !important; font-family: inherit !important; font-size: inherit !important; color: inherit !important; }
+</style>
+{% endblock head %}
+
+{% block content %}
+<div class="row">
+    <div class="col col-md-12">
+
+        {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+        {% endif %}
+
+        {# Commit picker #}
+        <div class="card mb-3">
+            <div class="card-body py-2">
+                <form method="get" action="{% url 'plugins:netbox_oxidized_viewer:device_compare' pk=object.pk %}" class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="text-muted small fw-semibold">Base</span>
+                    <select name="sha_old" class="form-select form-select-sm" style="width:auto;max-width:300px;">
+                        <option value="">(first commit)</option>
+                        {% for c in commits %}
+                        <option value="{{ c.sha }}" {% if c.sha == sha_old %}selected{% endif %}>{{ c.sha|slice:":7" }} — {{ c.subject|truncatechars:50 }}</option>
+                        {% endfor %}
+                    </select>
+                    <span class="text-muted">→</span>
+                    <span class="text-muted small fw-semibold">Compare</span>
+                    <select name="sha_new" class="form-select form-select-sm" style="width:auto;max-width:300px;">
+                        {% for c in commits %}
+                        <option value="{{ c.sha }}" {% if c.sha == sha_new %}selected{% endif %}>{{ c.sha|slice:":7" }} — {{ c.subject|truncatechars:50 }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-primary">Compare</button>
+                    {% if sha_old and sha_new and diff_data %}
+                    <a href="{% url 'plugins:netbox_oxidized_viewer:device_diff_download' pk=object.pk sha_old=sha_old sha_new=sha_new %}" class="btn btn-sm btn-ghost-secondary ms-auto">Download .patch</a>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+
+        {% if diff_data %}
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <a href="{% url 'plugins:netbox_oxidized_viewer:device_oxidized_config' pk=object.pk %}">Config History</a>
+                    &rsaquo;
+                    <code>{{ diff_data.old_sha|slice:":7"|default:"(new file)" }}</code>
+                    &rarr;
+                    <code>{{ diff_data.new_sha|slice:":7" }}</code>
+                </span>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-secondary active" id="btn-inline">Inline</button>
+                    <button type="button" class="btn btn-outline-secondary" id="btn-sbs">Side-by-side</button>
+                </div>
+            </div>
+
+            {# Inline diff #}
+            <div id="diff-inline" class="card-body p-0">
+                <div class="p-3" style="font-family:var(--bs-font-monospace);overflow-x:auto;">
+                    {% for hunk in diff_data.hunks %}
+                    <div class="text-muted small mb-1 mt-3 user-select-none" style="border-bottom:1px solid var(--bs-border-color);padding-bottom:2px;">
+                        @@ -{{ hunk.old_start }},{{ hunk.old_lines }} +{{ hunk.new_start }},{{ hunk.new_lines }} @@
+                    </div>
+                    {% for marker, content in hunk.lines %}
+                    {% if marker == '+' %}
+                    <div class="text-success bg-success bg-opacity-10" style="white-space:pre;"><span class="px-1 user-select-none" style="display:inline-block;width:1.4em">+</span><code class="language-bash diff-code">{{ content }}</code></div>
+                    {% elif marker == '-' %}
+                    <div class="text-danger bg-danger bg-opacity-10" style="white-space:pre;"><span class="px-1 user-select-none" style="display:inline-block;width:1.4em">-</span><code class="language-bash diff-code">{{ content }}</code></div>
+                    {% else %}
+                    <div style="white-space:pre;"><span class="px-1 user-select-none" style="display:inline-block;width:1.4em"> </span><code class="language-bash diff-code">{{ content }}</code></div>
+                    {% endif %}
+                    {% endfor %}
+                    {% empty %}
+                    <div class="p-3 text-muted">No changes found between these commits.</div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {# Side-by-side diff #}
+            <div id="diff-sbs" class="card-body p-0" style="display:none;">
+                <div style="font-family:var(--bs-font-monospace);overflow-x:auto;">
+                    {% for entry in side_by_side %}
+                    <div class="text-muted small px-3 py-1 user-select-none" style="border-bottom:1px solid var(--bs-border-color);">
+                        @@ -{{ entry.meta.old_start }},{{ entry.meta.old_lines }} +{{ entry.meta.new_start }},{{ entry.meta.new_lines }} @@
+                    </div>
+                    <table style="width:100%;table-layout:fixed;border-collapse:collapse;">
+                        {% for row in entry.rows %}
+                        <tr>
+                            {% if row.type == 'change' %}
+                            <td class="{% if row.old is not None %}text-danger bg-danger bg-opacity-10{% endif %}" style="width:50%;white-space:pre;padding:0 6px;vertical-align:top;border-right:1px solid var(--bs-border-color);">
+                                {% if row.old is not None %}<span class="user-select-none" style="display:inline-block;width:1.2em">-</span><code class="language-bash diff-code">{{ row.old }}</code>{% endif %}
+                            </td>
+                            <td class="{% if row.new is not None %}text-success bg-success bg-opacity-10{% endif %}" style="width:50%;white-space:pre;padding:0 6px;vertical-align:top;">
+                                {% if row.new is not None %}<span class="user-select-none" style="display:inline-block;width:1.2em">+</span><code class="language-bash diff-code">{{ row.new }}</code>{% endif %}
+                            </td>
+                            {% else %}
+                            <td style="width:50%;white-space:pre;padding:0 6px;vertical-align:top;border-right:1px solid var(--bs-border-color);"><span class="user-select-none" style="display:inline-block;width:1.2em"> </span><code class="language-bash diff-code">{{ row.old }}</code></td>
+                            <td style="width:50%;white-space:pre;padding:0 6px;vertical-align:top;"><span class="user-select-none" style="display:inline-block;width:1.2em"> </span><code class="language-bash diff-code">{{ row.new }}</code></td>
+                            {% endif %}
+                        </tr>
+                        {% endfor %}
+                    </table>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        {% elif not error %}
+        <div class="alert alert-info">Select two commits above to compare.</div>
+        {% endif %}
+
+    </div>
+</div>
+{% endblock content %}
+
+{% block javascript %}
+{{ block.super }}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script>
+(function () {
+    var btnInline = document.getElementById('btn-inline');
+    var btnSbs = document.getElementById('btn-sbs');
+    var divInline = document.getElementById('diff-inline');
+    var divSbs = document.getElementById('diff-sbs');
+    if (!btnInline) return;
+    btnInline.addEventListener('click', function () {
+        divInline.style.display = '';
+        divSbs.style.display = 'none';
+        btnInline.classList.add('active');
+        btnSbs.classList.remove('active');
+    });
+    btnSbs.addEventListener('click', function () {
+        divSbs.style.display = '';
+        divInline.style.display = 'none';
+        btnSbs.classList.add('active');
+        btnInline.classList.remove('active');
+    });
+}());
+</script>
+{% endblock javascript %}

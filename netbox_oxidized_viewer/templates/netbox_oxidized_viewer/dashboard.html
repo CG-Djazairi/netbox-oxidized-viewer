@@ -1,0 +1,46 @@
+{% extends 'base/layout.html' %}
+
+{% block title %}Oxidized Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Oxidized Backup Dashboard</h2>
+        <a href="{% url 'plugins:netbox_oxidized_viewer:oxidizedsource_list' %}" class="btn btn-sm btn-ghost-primary">Manage Sources</a>
+    </div>
+    <div class="card">
+        <div class="card-header">Mapped Devices</div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Device</th>
+                        <th>Filename</th>
+                        <th>Latest Backup</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for data in devices_data %}
+                    <tr>
+                        <td><a href="{{ data.device.get_absolute_url }}">{{ data.device.name }}</a></td>
+                        <td><code>{{ data.filename }}</code></td>
+                        <td>
+                            {{ data.latest_commit.timestamp|date:"Y-m-d H:i:s T" }}
+                            <br><small class="text-muted"><code>{{ data.latest_commit.sha|slice:":7" }}</code> {{ data.latest_commit.subject }}</small>
+                        </td>
+                        <td class="text-end">
+                            <a href="{% url 'plugins:netbox_oxidized_viewer:device_oxidized_config' pk=data.device.pk %}" class="btn btn-sm btn-ghost-primary">Config History</a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="4" class="text-center text-muted">No backed-up devices found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock content %}

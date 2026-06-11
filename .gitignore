@@ -1,0 +1,9 @@
+.claude/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+docs/
+CURRENT_STATE.md
