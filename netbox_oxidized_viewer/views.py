@@ -252,6 +252,24 @@ class ConfigSearchView(TemplateView):
     # we only ever annotate the rows on the requested page (see _fts_search).
     SEARCH_PAGE_SIZE = 25
 
+    # SearchHeadline does not HTML-escape the content it returns, and config
+    # content is device-controlled (banners, descriptions).  Have Postgres mark
+    # matches with non-HTML sentinels, escape the whole headline, then swap the
+    # sentinels for <mark> tags — never feed raw config through |safe.
+    HEADLINE_START_SENTINEL = '\x01'
+    HEADLINE_STOP_SENTINEL = '\x02'
+
+    @classmethod
+    def _render_headline(cls, raw_headline):
+        from django.utils.html import escape
+        from django.utils.safestring import mark_safe
+        escaped = escape(raw_headline)
+        return mark_safe(
+            escaped
+            .replace(cls.HEADLINE_START_SENTINEL, '<mark>')
+            .replace(cls.HEADLINE_STOP_SENTINEL, '</mark>')
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         query = self.request.GET.get('q', '').strip()
@@ -310,8 +328,8 @@ class ConfigSearchView(TemplateView):
                 headline=SearchHeadline(
                     'content', sq,
                     config='simple',
-                    start_sel='<mark>',
-                    stop_sel='</mark>',
+                    start_sel=self.HEADLINE_START_SENTINEL,
+                    stop_sel=self.HEADLINE_STOP_SENTINEL,
                     max_words=50,
                     min_words=15,
                     max_fragments=3,
@@ -325,7 +343,7 @@ class ConfigSearchView(TemplateView):
         results = [
             {
                 'device': snap.device,
-                'headline': snap.headline,
+                'headline': self._render_headline(snap.headline),
                 'commit_sha': snap.commit_sha,
                 'indexed_at': snap.indexed_at,
             }

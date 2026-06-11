@@ -11,6 +11,7 @@ Three classes:
 import os
 import unittest
 
+from django.contrib.auth import get_user_model
 from django.contrib.postgres.search import SearchQuery
 from django.test import TestCase, RequestFactory
 
@@ -229,7 +230,68 @@ class TestFTSSearchIntegration(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 3. Lab integration: real git repo, skipped if absent
+# 3. View: headline escaping (stored-XSS regression)
+# ---------------------------------------------------------------------------
+
+class TestSearchHeadlineEscaping(TestCase):
+    """
+    Config content is device-controlled (banners, descriptions).  The view must
+    escape it before marking the headline safe — a <script> tag in a config
+    must never reach the page as live HTML.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        site, manufacturer, device_type, device_role = _make_device_fixtures()
+        cls.user = get_user_model().objects.create_superuser('search-admin')
+        cls.source = OxidizedSource.objects.create(
+            name='XSS Source', git_repo_path='/tmp/fake-repo-xss'
+        )
+        device = Device.objects.create(
+            name='evil-banner', site=site, device_type=device_type, role=device_role
+        )
+        # .create() fires the post_save signal, so search_vector is populated.
+        ConfigSnapshot.objects.create(
+            device=device,
+            source=cls.source,
+            content=(
+                'set / system banner login '
+                '<script>alert(1)</script> interface admin-state enable'
+            ),
+            commit_sha='b' * 40,
+        )
+
+    def _search_context(self, query):
+        request = RequestFactory().get('/search/', {'q': query})
+        request.user = self.user
+        view = ConfigSearchView()
+        view.request = request
+        return view.get_context_data()
+
+    def test_render_headline_escapes_html(self):
+        # The core guarantee: raw headline HTML is escaped, only the sentinel
+        # markers become live <mark> tags.
+        raw = '<script>alert(1)</script> \x01interface\x02'
+        rendered = ConfigSearchView._render_headline(raw)
+        self.assertEqual(
+            rendered,
+            '&lt;script&gt;alert(1)&lt;/script&gt; <mark>interface</mark>',
+        )
+
+    def test_no_live_html_reaches_search_results(self):
+        # End-to-end: whatever ts_headline returns (it strips well-formed tags
+        # itself, but that's parser behaviour we must not rely on), the only
+        # '<' in the final headline belongs to our own <mark> tags.
+        context = self._search_context('interface')
+        self.assertEqual(len(context['results']), 1)
+        headline = context['results'][0]['headline']
+        self.assertIn('<mark>interface</mark>', headline)
+        stripped = headline.replace('<mark>', '').replace('</mark>', '')
+        self.assertNotIn('<', stripped)
+
+
+# ---------------------------------------------------------------------------
+# 4. Lab integration: real git repo, skipped if absent
 # ---------------------------------------------------------------------------
 
 LAB_REPO_PATH = '/media/semch/Jam1/oxidized-lab/oxidized/git-output'

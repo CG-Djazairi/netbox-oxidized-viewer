@@ -48,8 +48,8 @@
             <span class="text-muted small">{{ result.indexed_at|date:"Y-m-d H:i" }}</span>
         </div>
         <div class="card-body p-0">
-            {# Postgres-generated headline with <mark> tags around matches #}
-            <div class="px-3 py-2" style="font-family:var(--bs-font-monospace);font-size:0.85em;white-space:pre-wrap;">{{ result.headline|safe }}</div>
+            {# Headline is escaped server-side and marked safe by _render_headline — config content never reaches the page unescaped #}
+            <div class="px-3 py-2" style="font-family:var(--bs-font-monospace);font-size:0.85em;white-space:pre-wrap;">{{ result.headline }}</div>
         </div>
     </div>
     {% endfor %}
