@@ -1,8 +1,9 @@
 {% extends 'generic/object.html' %}
+{% load static %}
 
 {% block head %}
 {{ block.super }}
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+<link rel="stylesheet" href="{% static 'netbox_oxidized_viewer/prism/prism-tomorrow.min.css' %}">
 <style>
   /* Reset Prism background on inline code inside diff lines */
   .diff-code { background: none !important; padding: 0 !important; font-family: inherit !important; font-size: inherit !important; color: inherit !important; }
@@ -120,8 +121,8 @@
 
 {% block javascript %}
 {{ block.super }}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="{% static 'netbox_oxidized_viewer/prism/prism.min.js' %}"></script>
+<script src="{% static 'netbox_oxidized_viewer/prism/prism-bash.min.js' %}"></script>
 <script>
 (function () {
     var btnInline = document.getElementById('btn-inline');

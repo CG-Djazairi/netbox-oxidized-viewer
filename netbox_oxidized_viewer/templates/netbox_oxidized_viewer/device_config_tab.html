@@ -1,8 +1,10 @@
 {% extends 'generic/object.html' %}
+{% load static %}
 
 {% block head %}
 {{ block.super }}
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+{# Prism is vendored (static/netbox_oxidized_viewer/prism/) — air-gapped NetBox installs are the norm for this plugin's audience #}
+<link rel="stylesheet" href="{% static 'netbox_oxidized_viewer/prism/prism-tomorrow.min.css' %}">
 {% endblock head %}
 
 {% block content %}
@@ -78,6 +80,6 @@
 
 {% block javascript %}
 {{ block.super }}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="{% static 'netbox_oxidized_viewer/prism/prism.min.js' %}"></script>
+<script src="{% static 'netbox_oxidized_viewer/prism/prism-bash.min.js' %}"></script>
 {% endblock javascript %}
