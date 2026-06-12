@@ -5,5 +5,7 @@ __pycache__/
 dist/
 build/
 .eggs/
-docs/
+# docs/ is private (ADRs, future-ideas) except the install guide the README links to
+docs/*
+!docs/install.md
 CURRENT_STATE.md
