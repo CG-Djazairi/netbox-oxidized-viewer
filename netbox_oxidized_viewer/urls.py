@@ -13,6 +13,7 @@ urlpatterns = [
     path('sources/<int:pk>/', views.OxidizedSourceView.as_view(), name='oxidizedsource'),
     path('sources/<int:pk>/edit/', views.OxidizedSourceEditView.as_view(), name='oxidizedsource_edit'),
     path('sources/<int:pk>/delete/', views.OxidizedSourceDeleteView.as_view(), name='oxidizedsource_delete'),
+    path('sources/<int:pk>/reindex/', views.SourceReindexView.as_view(), name='oxidizedsource_reindex'),
     path('sources/<int:pk>/changelog/', ObjectChangeLogView.as_view(), name='oxidizedsource_changelog', kwargs={
         'model': models.OxidizedSource
     }),
@@ -26,6 +27,10 @@ urlpatterns = [
 
     # Commit picker redirect
     path('devices/<int:pk>/compare/', views.ConfigCompareRedirectView.as_view(), name='device_compare'),
+
+    # Commit notes (stored in NetBox, not git) + on-demand Oxidized sync
+    path('devices/<int:pk>/commit/<str:sha>/note/', views.AddCommitNoteView.as_view(), name='device_add_note'),
+    path('devices/<int:pk>/sync/', views.DeviceSyncView.as_view(), name='device_sync'),
 
     # Downloads
     path('devices/<int:pk>/config/download/', views.DeviceConfigDownloadView.as_view(), name='device_config_download'),

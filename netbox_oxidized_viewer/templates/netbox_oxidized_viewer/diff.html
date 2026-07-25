@@ -115,6 +115,38 @@
         <div class="alert alert-info">Select two commits above to compare.</div>
         {% endif %}
 
+        {# Change notes — stored in NetBox, attached to the "new" commit #}
+        {% if sha_new %}
+        <div class="card mt-3">
+            <div class="card-header">
+                <strong>Change notes</strong>
+                <span class="text-muted small">for <code>{{ sha_new|slice:":7" }}</code></span>
+            </div>
+            <div class="card-body">
+                {% for note in notes %}
+                <div class="d-flex justify-content-between border-bottom pb-2 mb-2">
+                    <div style="white-space:pre-wrap;">{{ note.message }}</div>
+                    <div class="text-muted small text-nowrap ms-3">
+                        {{ note.created_by|default:"—" }}<br>{{ note.created|date:"Y-m-d H:i" }}
+                    </div>
+                </div>
+                {% empty %}
+                <p class="text-muted {% if not can_add_note %}mb-0{% endif %}">No notes on this change yet.</p>
+                {% endfor %}
+
+                {% if can_add_note %}
+                <form action="{% url 'plugins:netbox_oxidized_viewer:device_add_note' pk=object.pk sha=sha_new %}" method="post" class="mt-2">
+                    {% csrf_token %}
+                    <div class="mb-2">
+                        <textarea name="message" class="form-control" rows="2" placeholder="Why did this config change? (e.g. change ticket, reason)"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">Add note</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
     </div>
 </div>
 {% endblock content %}

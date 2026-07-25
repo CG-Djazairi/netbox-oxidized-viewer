@@ -115,17 +115,25 @@ class TestConfigSnapshotSignal(TestCase):
             "'bgp' should match after content updated",
         )
 
-    def test_no_duplicate_signal_loop(self):
-        """filter().update() in the signal must not trigger another save."""
-        import unittest.mock as mock
-        original_update = ConfigSnapshot.objects.filter(pk=1).__class__.update
+    def test_queryset_update_refreshes_vector(self):
+        """
+        search_vector is a STORED generated column, so a queryset .update()
+        (which bypasses save() and any signal) still refreshes it. This is the
+        bug class the old post_save signal could not cover.
+        """
+        snap = self._make_snap(SR_LINUX_INTERFACE)
+        ConfigSnapshot.objects.filter(pk=snap.pk).update(content=SR_LINUX_BGP)
 
-        with mock.patch.object(
-            ConfigSnapshot.objects.__class__, 'update', wraps=original_update
-        ) as patched_update:
-            self._make_snap(SR_LINUX_INTERFACE)
-            # update() called exactly once (by the signal), not recursively
-            self.assertLessEqual(patched_update.call_count, 2)
+        interface_sq = SearchQuery('interface', config='simple')
+        bgp_sq = SearchQuery('bgp', config='simple')
+        self.assertFalse(
+            ConfigSnapshot.objects.filter(pk=snap.pk, search_vector=interface_sq).exists(),
+            "'interface' must no longer match after queryset .update() to BGP config",
+        )
+        self.assertTrue(
+            ConfigSnapshot.objects.filter(pk=snap.pk, search_vector=bgp_sq).exists(),
+            "'bgp' must match after queryset .update() — generated column stays in sync",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -166,15 +174,12 @@ class TestFTSSearchIntegration(TestCase):
                 content=(
                     MATCH_EVERY + '\n' + (MATCH_EVEN if i % 2 == 0 else SR_LINUX_BGP)
                 ),
-                commit_sha=f'{'a' * 39}{i % 10}',
+                commit_sha='a' * 39 + str(i % 10),
             )
             for i, dev in enumerate(devices)
         ])
-        # bulk_create bypasses save() → signal won't fire; update vectors manually.
-        from django.contrib.postgres.search import SearchVector
-        ConfigSnapshot.objects.filter(source=cls.source).update(
-            search_vector=SearchVector('content', config='simple')
-        )
+        # search_vector is a STORED generated column — Postgres populates it on
+        # INSERT, so even bulk_create() produces searchable rows with no extra step.
 
     def _search(self, term):
         sq = SearchQuery(term, config='simple')
@@ -250,7 +255,7 @@ class TestSearchHeadlineEscaping(TestCase):
         device = Device.objects.create(
             name='evil-banner', site=site, device_type=device_type, role=device_role
         )
-        # .create() fires the post_save signal, so search_vector is populated.
+        # search_vector is a STORED generated column, populated by Postgres on insert.
         ConfigSnapshot.objects.create(
             device=device,
             source=cls.source,
@@ -294,11 +299,11 @@ class TestSearchHeadlineEscaping(TestCase):
 # 4. Lab integration: real git repo, skipped if absent
 # ---------------------------------------------------------------------------
 
-LAB_REPO_PATH = '/media/semch/Jam1/oxidized-lab/oxidized/git-output'
+LAB_REPO_PATH = os.environ.get('OXIDIZED_LAB_REPO', '')
 
 @unittest.skipUnless(
-    os.path.exists(LAB_REPO_PATH),
-    f"Lab git repo not found at {LAB_REPO_PATH}",
+    LAB_REPO_PATH and os.path.exists(LAB_REPO_PATH),
+    "Set OXIDIZED_LAB_REPO to a bare repo path to run lab integration",
 )
 class TestLabIntegration(TestCase):
 

@@ -45,6 +45,14 @@ inside PostgreSQL.
 > content and diffs. Headlines are emitted with sentinel delimiters and
 > escaped server-side before `<mark>` insertion (stored-XSS fix).
 
+> **Update (2026-07):** the `post_save` signal that recomputed `search_vector`
+> was replaced by a Postgres **STORED generated column** (`GeneratedField`,
+> migration 0007). Postgres now maintains the tsvector on every write, so the
+> index cannot drift even for write paths that bypass `save()` (`bulk_create`,
+> queryset `.update(content=...)`) — the class of staleness bug the signal
+> could not cover. The indexing job's per-row write is also halved (one INSERT
+> instead of INSERT + signal UPDATE). `config='simple'` is unchanged.
+
 ## Why pagination is essential
 
 On the first implementation, `SearchHeadline` was applied to every row returned by
@@ -56,8 +64,9 @@ Measured impact of running `SearchHeadline` without pagination at 1,000 devices:
 7,388ms avg, 80.9 MB peak — only 2× faster than git-grep.
 
 **Fix:** count total matches cheaply with a `COUNT(*)` (index only), then apply
-`SearchHeadline` to the first 50 rows after ranking.  Memory becomes constant at
-~4 MB regardless of N.
+`SearchHeadline` only to the current page of ranked rows (`SEARCH_PAGE_SIZE`,
+currently 25 — see `ConfigSearchView`).  Memory becomes constant at ~4 MB
+regardless of N.
 
 ## Benchmark results (measured 2026-05-04, inside `netbox-docker-netbox-1`)
 
@@ -84,7 +93,8 @@ Scaling: **O(log N)**.  Memory constant at 0.1 MB.
 Memory capped at 4 MB.  Latency is still O(N matches) because `SearchRank` must
 visit every matched row to identify the top 50.
 
-Full results in `benchmarks/results.md`.
+Full measurement scripts and raw numbers live outside the published package
+(developer working notes); the summary tables above are the reproducible result.
 
 ## Alternatives considered
 
@@ -128,7 +138,8 @@ stop word removal — which is exactly right for the search domain.
 ## Consequences
 
 - **Selective searches**: O(log N), sub-15ms at 1,000 devices.
-- **Broad searches**: O(N matches) for ranking; headline capped at 50 rows.
+- **Broad searches**: O(N matches) for ranking; headline computed only for the
+  current page (`SEARCH_PAGE_SIZE`, currently 25 rows).
   Memory constant at ~4 MB regardless of N; 4× faster than git-grep at 1,000.
 - Indexing runs as a NetBox system job (`ConfigSnapshotIndexJob`) on a
   configurable interval (`index_interval_minutes`, default 60) via the RQ worker.

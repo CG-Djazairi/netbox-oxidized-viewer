@@ -1,4 +1,16 @@
 {% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block extra_controls %}
+    {% if perms.netbox_oxidized_viewer.change_oxidizedsource %}
+    <form action="{% url 'plugins:netbox_oxidized_viewer:oxidizedsource_reindex' pk=object.pk %}" method="post" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-sm btn-primary">
+            <i class="mdi mdi-refresh"></i> Reindex now
+        </button>
+    </form>
+    {% endif %}
+{% endblock extra_controls %}
 
 {% block content %}
 <div class="row">
@@ -19,10 +31,43 @@
                         <th scope="row">Node Name Source</th>
                         <td><code>{{ object.node_name_source }}</code></td>
                     </tr>
+                    <tr>
+                        <th scope="row">Oxidized API URL</th>
+                        <td>{{ object.api_url|placeholder }}</td>
+                    </tr>
                 </table>
             </div>
         </div>
         {% include 'inc/panels/tags.html' %}
+    </div>
+
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">Backup Scope</h5>
+            <div class="card-body">
+                <p class="text-muted small">Devices are in scope when they match every filter set below (blank filter = any). Empty scope = all active devices.</p>
+                <table class="table table-hover attr-table">
+                    <tr>
+                        <th scope="row">Device roles</th>
+                        <td>
+                            {% for role in object.scope_roles.all %}<span class="badge text-bg-grey">{{ role }}</span> {% empty %}<span class="text-muted">Any</span>{% endfor %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Platforms</th>
+                        <td>
+                            {% for p in object.scope_platforms.all %}<span class="badge text-bg-grey">{{ p }}</span> {% empty %}<span class="text-muted">Any</span>{% endfor %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Device tags</th>
+                        <td>
+                            {% for t in object.scope_tags.all %}<span class="badge" style="background-color:#{{ t.color }}">{{ t }}</span> {% empty %}<span class="text-muted">Any</span>{% endfor %}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock content %}

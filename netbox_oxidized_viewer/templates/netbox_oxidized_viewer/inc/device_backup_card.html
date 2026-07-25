@@ -1,0 +1,44 @@
+{% load helpers %}
+<div class="card">
+  <h2 class="card-header d-flex justify-content-between align-items-center">
+    Config Backup
+    {% if oxi_status == 'ok' %}
+    <span class="badge text-bg-success">Up to date</span>
+    {% elif oxi_status == 'stale' %}
+    <span class="badge text-bg-warning" title="Older than {{ oxi_stale_after_hours }}h">Stale</span>
+    {% else %}
+    <span class="badge text-bg-danger">No backup</span>
+    {% endif %}
+  </h2>
+  <div class="card-body">
+    {% if oxi_snapshot %}
+    <table class="table table-borderless attr-table mb-2">
+      <tr>
+        <th scope="row">Last backup</th>
+        <td>{{ oxi_snapshot.commit_timestamp|placeholder }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Commit</th>
+        <td><code>{{ oxi_snapshot.commit_sha|slice:":7" }}</code></td>
+      </tr>
+      {% if oxi_snapshot.commit_subject %}
+      <tr>
+        <th scope="row">Message</th>
+        <td>{{ oxi_snapshot.commit_subject }}</td>
+      </tr>
+      {% endif %}
+    </table>
+    <a href="{% url 'plugins:netbox_oxidized_viewer:device_oxidized_config' pk=object.pk %}" class="btn btn-sm btn-primary">
+      <i class="mdi mdi-history"></i> Config History
+    </a>
+    <a href="{% url 'plugins:netbox_oxidized_viewer:device_config_download' pk=object.pk %}" class="btn btn-sm btn-outline-secondary">
+      <i class="mdi mdi-download"></i> Download
+    </a>
+    {% else %}
+    <p class="text-muted mb-0">
+      No configuration backup has been indexed for this device.
+      Confirm Oxidized backs it up and that its node name matches the source mapping.
+    </p>
+    {% endif %}
+  </div>
+</div>

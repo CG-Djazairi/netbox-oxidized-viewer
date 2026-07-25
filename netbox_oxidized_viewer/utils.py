@@ -40,6 +40,25 @@ def resolve_device_field(device, field_expr: str):
     return str(value) if value is not None else None
 
 
+def scope_device_queryset(source, queryset):
+    """
+    Narrow a Device queryset to the devices in this source's Oxidized scope.
+
+    A device is in scope when it matches every scope filter that is set on the
+    source (roles AND platforms AND tags). An unset filter adds no constraint, so
+    a source with no scope configured returns the queryset unchanged.
+    """
+    if source is None:
+        return queryset
+    if source.scope_roles.exists():
+        queryset = queryset.filter(role__in=source.scope_roles.all())
+    if source.scope_platforms.exists():
+        queryset = queryset.filter(platform__in=source.scope_platforms.all())
+    if source.scope_tags.exists():
+        queryset = queryset.filter(tags__in=source.scope_tags.all()).distinct()
+    return queryset
+
+
 def get_backend_and_filename_for_device(device):
     """
     Returns (CachedGitBackend, filename) for a given device, or (None, None).

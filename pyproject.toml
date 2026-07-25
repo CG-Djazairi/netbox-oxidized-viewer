@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,8 +7,9 @@ name = "netbox-oxidized-viewer"
 version = "0.1.0"
 description = "NetBox plugin for viewing Oxidized configuration backups with history, diff, and full-text search"
 readme = "README.md"
-requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+# NetBox 4.5 itself requires Python >= 3.12, so the plugin does too.
+requires-python = ">=3.12"
+license = "Apache-2.0"
 authors = [
     { name = "Chemseddine Guir", email = "guir.chemseddine@gmail.com" },
 ]
@@ -24,7 +25,6 @@ classifiers = [
     "Environment :: Web Environment",
     "Framework :: Django",
     "Intended Audience :: System Administrators",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -33,7 +33,20 @@ classifiers = [
     "Topic :: System :: Networking",
 ]
 dependencies = [
-    "dulwich>=0.21",
+    # Upper bound: dulwich is versioned aggressively (0.x allowed breaking minor
+    # releases); cap at the next major so a container rebuild can't silently pull
+    # an untested API. Tested against 0.21–1.1.
+    "dulwich>=0.21,<2.0",
+    # requests is used only for the optional Oxidized "sync now" trigger; it is
+    # already a NetBox dependency, pinned loosely here for correctness.
+    "requests>=2.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6",
+    "build",
+    "twine",
 ]
 
 [project.urls]
@@ -43,6 +56,17 @@ Issues = "https://github.com/CG-Djazairi/netbox-oxidized-viewer/issues"
 
 [tool.setuptools.packages.find]
 include = ["netbox_oxidized_viewer*"]
+exclude = ["netbox_oxidized_viewer.tests*"]
 
 [tool.setuptools.package-data]
 netbox_oxidized_viewer = ["templates/**/*", "static/**/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# E501 (line length) is handled by the formatter; migrations are generated code.
+ignore = ["E501"]

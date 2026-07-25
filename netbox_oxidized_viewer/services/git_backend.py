@@ -220,6 +220,54 @@ class GitBackend:
         commits = self.list_commits(filename, limit=1)
         return commits[0] if commits else None
 
+    def latest_commit_per_file(self) -> dict:
+        """
+        Walk the repository history ONCE (newest-first) and return, for every
+        file currently present at HEAD, the most recent commit that modified it:
+        ``{filename: CommitMeta}``.
+
+        Oxidized stores every device in one shared repo and commits one device
+        per change, so calling get_latest_commit() per device is
+        O(devices × history) — each call re-walks the whole repo. This does a
+        single O(history) pass and stops early once every current file has been
+        attributed, which is the hot path for the indexing job.
+
+        Only top-level files are considered (Oxidized repos are flat); files
+        deleted at HEAD are not returned.
+        """
+        try:
+            head_sha = self.repo.head()
+        except KeyError:
+            return {}  # empty repository
+
+        head_commit = self.repo[head_sha]
+        head_tree = self.repo[head_commit.tree]
+        remaining = {
+            name.decode('utf-8', errors='replace')
+            for name, _, _ in head_tree.iteritems()
+        }
+        result: dict = {}
+
+        for entry in self.repo.get_walker(include=[head_sha]):
+            if not remaining:
+                break
+            commit_meta = None
+            for change in entry.changes():
+                # Non-merge commits yield a flat list of TreeChange; merges can
+                # yield a list per parent — normalise both shapes.
+                change_group = change if isinstance(change, list) else [change]
+                for tc in change_group:
+                    target = tc.new if (tc.new and tc.new.path) else tc.old
+                    if not target or not target.path:
+                        continue
+                    name = target.path.decode('utf-8', errors='replace')
+                    if name in remaining:
+                        if commit_meta is None:
+                            commit_meta = self._commit_to_meta(entry.commit)
+                        result[name] = commit_meta
+                        remaining.discard(name)
+        return result
+
     def get_file_content(self, filename: str, sha: str) -> str:
         """
         Returns the decoded string content of the file at the specific commit SHA.

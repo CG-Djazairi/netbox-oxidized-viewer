@@ -4,7 +4,7 @@ from dcim.models import Device
 
 from .models import ConfigSnapshot, OxidizedSource
 from .services.git_backend import GitBackend, InvalidRepository, RepositoryNotFound
-from .utils import resolve_device_field
+from .utils import resolve_device_field, scope_device_queryset
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +14,9 @@ def update_config_snapshots(source_pk=None):
     Walk all OxidizedSource instances (or a single one when source_pk is given),
     compare the latest git commit SHA per device against the stored snapshot,
     and upsert ConfigSnapshot rows only when the content has changed.
+
+    The repository history is walked ONCE per source (latest_commit_per_file),
+    not once per device, so cost is O(history) rather than O(devices × history).
 
     Triggered by:
       - The ConfigSnapshotIndexJob system job, which NetBox runs on a schedule
@@ -33,21 +36,35 @@ def update_config_snapshots(source_pk=None):
             logger.warning("Skipping source '%s': %s", source.name, exc)
             continue
 
+        # Single history walk: {filename: CommitMeta} for every file at HEAD.
+        latest_by_file = backend.latest_commit_per_file()
+
+        # Prefetch existing snapshots so the per-device loop does not issue a
+        # query each iteration (ConfigSnapshot is one row per device).
+        existing = {
+            snap.device_id: snap
+            for snap in ConfigSnapshot.objects.only(
+                'device_id', 'commit_sha', 'commit_timestamp'
+            )
+        }
+
         updated = skipped = errors = 0
 
-        for device in Device.objects.iterator():
+        # Only index devices in this source's scope (roles/platforms/tags).
+        scoped_devices = scope_device_queryset(source, Device.objects.all())
+        for device in scoped_devices.iterator():
             filename = resolve_device_field(device, source.node_name_source)
             if not filename:
                 continue
 
-            latest = backend.get_latest_commit(filename)
+            latest = latest_by_file.get(filename)
             if not latest:
                 continue
 
-            existing = ConfigSnapshot.objects.filter(device=device).first()
+            prev = existing.get(device.id)
             # commit_timestamp check backfills rows indexed before the commit
             # metadata columns existed (migration 0006).
-            if existing and existing.commit_sha == latest.sha and existing.commit_timestamp:
+            if prev and prev.commit_sha == latest.sha and prev.commit_timestamp:
                 skipped += 1
                 continue
 

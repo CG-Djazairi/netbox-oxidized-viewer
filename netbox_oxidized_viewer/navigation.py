@@ -17,6 +17,7 @@ menu = PluginMenu(
             PluginMenuItem(
                 link='plugins:netbox_oxidized_viewer:oxidizedsource_list',
                 link_text='Sources',
+                permissions=['netbox_oxidized_viewer.view_oxidizedsource'],
             ),
         )),
     ),

@@ -1,5 +1,6 @@
 {% extends 'generic/object.html' %}
 {% load static %}
+{% load oxidized_viewer %}
 
 {% block head %}
 {{ block.super }}
@@ -18,6 +19,14 @@
                     {% if latest_commit %}
                     <span class="text-muted small">Last backed up: {{ latest_commit.timestamp|date:"Y-m-d H:i:s T" }}</span>
                     <a href="{% url 'plugins:netbox_oxidized_viewer:device_config_download' pk=object.pk %}" class="btn btn-sm btn-ghost-secondary">Download</a>
+                    {% endif %}
+                    {% if sync_enabled %}
+                    <form action="{% url 'plugins:netbox_oxidized_viewer:device_sync' pk=object.pk %}" method="post" class="d-inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-ghost-primary" title="Ask Oxidized to back up this device now">
+                            <i class="mdi mdi-sync"></i> Sync now
+                        </button>
+                    </form>
                     {% endif %}
                 </div>
             </div>
@@ -49,6 +58,7 @@
                             <th>Commit</th>
                             <th>Message</th>
                             <th>Author</th>
+                            <th>Notes</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -59,6 +69,11 @@
                             <td><code>{{ commit.sha|slice:":7" }}</code></td>
                             <td>{{ commit.subject }}</td>
                             <td>{{ commit.author_name }}</td>
+                            <td>
+                                {% with n=note_counts|dictkey:commit.sha %}
+                                {% if n %}<span class="badge text-bg-info" title="{{ n }} note{{ n|pluralize }}"><i class="mdi mdi-comment-text-outline"></i> {{ n }}</span>{% endif %}
+                                {% endwith %}
+                            </td>
                             <td class="text-end">
                                 <a href="{% url 'plugins:netbox_oxidized_viewer:device_commit_download' pk=object.pk sha=commit.sha %}" class="btn btn-sm btn-ghost-secondary me-1">Download</a>
                                 <a href="{% url 'plugins:netbox_oxidized_viewer:device_commit' pk=object.pk sha_new=commit.sha %}" class="btn btn-sm btn-ghost-primary">Diff</a>
@@ -66,7 +81,7 @@
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="5" class="text-center text-muted">No commits found.</td>
+                            <td colspan="6" class="text-center text-muted">No commits found.</td>
                         </tr>
                         {% endfor %}
                     </tbody>

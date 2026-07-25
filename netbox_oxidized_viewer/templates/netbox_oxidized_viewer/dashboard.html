@@ -1,4 +1,5 @@
 {% extends 'base/layout.html' %}
+{% load helpers %}
 
 {% block title %}Oxidized Dashboard{% endblock %}
 
@@ -8,6 +9,72 @@
         <h2>Oxidized Backup Dashboard</h2>
         <a href="{% url 'plugins:netbox_oxidized_viewer:oxidizedsource_list' %}" class="btn btn-sm btn-ghost-primary">Manage Sources</a>
     </div>
+
+    {% if not source %}
+    <div class="alert alert-warning">
+        No Oxidized source configured. Add one under
+        <a href="{% url 'plugins:netbox_oxidized_viewer:oxidizedsource_list' %}">Sources</a>.
+    </div>
+    {% else %}
+
+    {# Health summary #}
+    <div class="row mb-3">
+        <div class="col-sm-4">
+            <div class="card text-center">
+                <div class="card-body py-3">
+                    <h3 class="mb-0 text-success">{{ ok_count }}</h3>
+                    <small class="text-muted">Up to date</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-4">
+            <div class="card text-center">
+                <div class="card-body py-3">
+                    <h3 class="mb-0 {% if stale_count %}text-warning{% else %}text-muted{% endif %}">{{ stale_count }}</h3>
+                    <small class="text-muted">Stale (&gt; {{ stale_after_hours }}h)</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-4">
+            <div class="card text-center">
+                <div class="card-body py-3">
+                    <h3 class="mb-0 {% if missing_count %}text-danger{% else %}text-muted{% endif %}">{{ missing_count }}</h3>
+                    <small class="text-muted">Never backed up</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Never-backed-up devices (collapsible; only in-scope devices) #}
+    {% if missing %}
+    <div class="card mb-3 border-danger">
+        <div class="card-header text-red d-flex justify-content-between align-items-center"
+             role="button" style="cursor:pointer;"
+             data-bs-toggle="collapse" data-bs-target="#oxi-missing"
+             aria-expanded="false" aria-controls="oxi-missing">
+            <span>Never backed up — {{ missing_count }} in-scope device{{ missing_count|pluralize }} with no configuration in the repo</span>
+            <i class="mdi mdi-chevron-down"></i>
+        </div>
+        <div id="oxi-missing" class="collapse">
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead><tr><th>Device</th><th>Role</th><th>Expected filename</th></tr></thead>
+                    <tbody>
+                        {% for row in missing %}
+                        <tr>
+                            <td><a href="{{ row.device.get_absolute_url }}">{{ row.device.name }}</a></td>
+                            <td>{{ row.device.role|placeholder }}</td>
+                            <td><code>{{ row.filename }}</code></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Indexed devices #}
     <div class="card">
         <div class="card-header">Mapped Devices</div>
         <div class="card-body p-0">
@@ -26,7 +93,10 @@
                         <td><a href="{{ data.device.get_absolute_url }}">{{ data.device.name }}</a></td>
                         <td><code>{{ data.filename }}</code></td>
                         <td>
-                            {{ data.commit_timestamp|date:"Y-m-d H:i:s T" }}
+                            {% if data.is_stale %}
+                            <span class="badge text-bg-warning me-1">Stale</span>
+                            {% endif %}
+                            {{ data.commit_timestamp|placeholder }}
                             <br><small class="text-muted"><code>{{ data.commit_sha|slice:":7" }}</code> {{ data.commit_subject }}</small>
                         </td>
                         <td class="text-end">
@@ -45,5 +115,6 @@
             </table>
         </div>
     </div>
+    {% endif %}
 </div>
 {% endblock content %}
