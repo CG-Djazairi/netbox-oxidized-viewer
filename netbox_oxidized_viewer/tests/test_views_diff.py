@@ -16,7 +16,6 @@ def _hunk(lines):
 
 
 class TestHunksToSideBySide(SimpleTestCase):
-
     def test_empty(self):
         self.assertEqual(_hunks_to_side_by_side([]), [])
 
@@ -32,9 +31,7 @@ class TestHunksToSideBySide(SimpleTestCase):
 
     def test_paired_change(self):
         # one deletion + one addition flushed by a following context line
-        rows = _hunks_to_side_by_side(
-            [_hunk([('-', 'old'), ('+', 'new'), (' ', 'ctx')])]
-        )[0]['rows']
+        rows = _hunks_to_side_by_side([_hunk([('-', 'old'), ('+', 'new'), (' ', 'ctx')])])[0]['rows']
         self.assertEqual(
             rows,
             [
@@ -45,9 +42,7 @@ class TestHunksToSideBySide(SimpleTestCase):
 
     def test_uneven_addition(self):
         # one deletion, two additions → second addition has no old counterpart
-        rows = _hunks_to_side_by_side(
-            [_hunk([('-', 'd'), ('+', 'a1'), ('+', 'a2')])]
-        )[0]['rows']
+        rows = _hunks_to_side_by_side([_hunk([('-', 'd'), ('+', 'a1'), ('+', 'a2')])])[0]['rows']
         self.assertEqual(
             rows,
             [

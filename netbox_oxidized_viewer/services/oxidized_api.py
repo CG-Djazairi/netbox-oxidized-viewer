@@ -25,12 +25,12 @@ def trigger_backup(api_url: str, node: str, timeout: int = 10) -> str:
     a friendly message instead of a 500.
     """
     if not api_url:
-        raise OxidizedAPIError("No Oxidized API URL is configured on the source.")
+        raise OxidizedAPIError('No Oxidized API URL is configured on the source.')
 
-    url = f"{api_url.rstrip('/')}/node/next/{quote(node, safe='')}"
+    url = f'{api_url.rstrip("/")}/node/next/{quote(node, safe="")}'
     try:
         resp = requests.get(url, timeout=timeout)
         resp.raise_for_status()
     except requests.RequestException as exc:
-        raise OxidizedAPIError(f"Oxidized API request failed: {exc}") from exc
+        raise OxidizedAPIError(f'Oxidized API request failed: {exc}') from exc
     return resp.text

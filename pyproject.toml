@@ -63,10 +63,13 @@ netbox_oxidized_viewer = ["templates/**/*", "static/**/*"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
-extend-exclude = ["migrations"]
+target-version = "py312"
+extend-exclude = ["*/migrations/*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 # E501 (line length) is handled by the formatter; migrations are generated code.
 ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "single"

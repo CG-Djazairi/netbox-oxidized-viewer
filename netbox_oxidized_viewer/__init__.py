@@ -25,7 +25,6 @@ class OxidizedViewerConfig(PluginConfig):
         # group-based credentials). e.g. 'site', 'tenant', 'role', or 'cf_<name>'.
         # None omits the group field entirely.
         'inventory_group_field': None,
-
         # --- Optional zero-touch install: auto-provision the OxidizedSource ---
         # Set git_repo_path here and the source is created automatically on
         # `migrate` (create-if-absent), so a fresh deployment needs no UI step.
@@ -40,9 +39,13 @@ class OxidizedViewerConfig(PluginConfig):
 
     def ready(self):
         from django.db.models.signals import post_migrate
-        from . import navigation  # noqa: F401
-        from . import jobs  # noqa: F401  registers the ConfigSnapshotIndexJob system job
+
+        from . import (
+            jobs,  # noqa: F401  registers the ConfigSnapshotIndexJob system job
+            navigation,  # noqa: F401
+        )
         from .bootstrap import post_migrate_provision
+
         # Auto-provision the source from settings after this app's migrations.
         post_migrate.connect(post_migrate_provision, sender=self)
         super().ready()

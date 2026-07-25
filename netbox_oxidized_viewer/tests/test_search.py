@@ -11,27 +11,24 @@ Three classes:
 import os
 import unittest
 
+from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
 from django.contrib.auth import get_user_model
 from django.contrib.postgres.search import SearchQuery
-from django.test import TestCase, RequestFactory
-
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
+from django.test import RequestFactory, TestCase
 
 from netbox_oxidized_viewer.models import ConfigSnapshot, OxidizedSource
 from netbox_oxidized_viewer.views import ConfigSearchView
-
 
 # ---------------------------------------------------------------------------
 # Shared fixture helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_device_fixtures():
     """Return (site, manufacturer, device_type, device_role) for test setup."""
     site = Site.objects.create(name='Test Site', slug='test-site')
     manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
-    device_type = DeviceType.objects.create(
-        manufacturer=manufacturer, model='SR Linux', slug='sr-linux'
-    )
+    device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
     device_role = DeviceRole.objects.create(name='Router', slug='router')
     return site, manufacturer, device_type, device_role
 
@@ -53,17 +50,13 @@ set / network-instance default protocols bgp group EBGP export-policy ACCEPT
 # 1. Unit: search_vector signal
 # ---------------------------------------------------------------------------
 
-class TestConfigSnapshotSignal(TestCase):
 
+class TestConfigSnapshotSignal(TestCase):
     @classmethod
     def setUpTestData(cls):
         site, manufacturer, device_type, device_role = _make_device_fixtures()
-        cls.device = Device.objects.create(
-            name='spine1', site=site, device_type=device_type, role=device_role
-        )
-        cls.source = OxidizedSource.objects.create(
-            name='Test Source', git_repo_path='/tmp/fake-repo'
-        )
+        cls.device = Device.objects.create(name='spine1', site=site, device_type=device_type, role=device_role)
+        cls.source = OxidizedSource.objects.create(name='Test Source', git_repo_path='/tmp/fake-repo')
 
     def _make_snap(self, content, sha='abc1234567890abc1234567890abc1234567890a'):
         return ConfigSnapshot.objects.create(
@@ -81,20 +74,12 @@ class TestConfigSnapshotSignal(TestCase):
     def test_search_vector_matches_term_in_content(self):
         self._make_snap(SR_LINUX_INTERFACE)
         sq = SearchQuery('interface', config='simple')
-        self.assertTrue(
-            ConfigSnapshot.objects.filter(
-                device=self.device, search_vector=sq
-            ).exists()
-        )
+        self.assertTrue(ConfigSnapshot.objects.filter(device=self.device, search_vector=sq).exists())
 
     def test_search_vector_does_not_match_absent_term(self):
         self._make_snap(SR_LINUX_INTERFACE)
         sq = SearchQuery('bgp', config='simple')
-        self.assertFalse(
-            ConfigSnapshot.objects.filter(
-                device=self.device, search_vector=sq
-            ).exists()
-        )
+        self.assertFalse(ConfigSnapshot.objects.filter(device=self.device, search_vector=sq).exists())
 
     def test_search_vector_updated_on_content_change(self):
         snap = self._make_snap(SR_LINUX_INTERFACE)
@@ -143,13 +128,12 @@ class TestConfigSnapshotSignal(TestCase):
 DEVICE_COUNT = 50
 
 # Every device has this base; MATCH_EVERY is searchable across all.
-MATCH_EVERY = "set / system banner login Welcome"
+MATCH_EVERY = 'set / system banner login Welcome'
 # Only even-numbered devices also contain this.
-MATCH_EVEN = "set / interface loopback0 admin-state enable"
+MATCH_EVEN = 'set / interface loopback0 admin-state enable'
 
 
 class TestFTSSearchIntegration(TestCase):
-
     @classmethod
     def setUpTestData(cls):
         site, manufacturer, device_type, device_role = _make_device_fixtures()
@@ -157,27 +141,29 @@ class TestFTSSearchIntegration(TestCase):
             name='Integration Source', git_repo_path='/tmp/fake-repo-integration'
         )
 
-        devices = Device.objects.bulk_create([
-            Device(
-                name=f'device-{i:03d}',
-                site=site,
-                device_type=device_type,
-                role=device_role,
-            )
-            for i in range(DEVICE_COUNT)
-        ])
+        devices = Device.objects.bulk_create(
+            [
+                Device(
+                    name=f'device-{i:03d}',
+                    site=site,
+                    device_type=device_type,
+                    role=device_role,
+                )
+                for i in range(DEVICE_COUNT)
+            ]
+        )
 
-        ConfigSnapshot.objects.bulk_create([
-            ConfigSnapshot(
-                device=dev,
-                source=cls.source,
-                content=(
-                    MATCH_EVERY + '\n' + (MATCH_EVEN if i % 2 == 0 else SR_LINUX_BGP)
-                ),
-                commit_sha='a' * 39 + str(i % 10),
-            )
-            for i, dev in enumerate(devices)
-        ])
+        ConfigSnapshot.objects.bulk_create(
+            [
+                ConfigSnapshot(
+                    device=dev,
+                    source=cls.source,
+                    content=(MATCH_EVERY + '\n' + (MATCH_EVEN if i % 2 == 0 else SR_LINUX_BGP)),
+                    commit_sha='a' * 39 + str(i % 10),
+                )
+                for i, dev in enumerate(devices)
+            ]
+        )
         # search_vector is a STORED generated column — Postgres populates it on
         # INSERT, so even bulk_create() produces searchable rows with no extra step.
 
@@ -185,15 +171,22 @@ class TestFTSSearchIntegration(TestCase):
         sq = SearchQuery(term, config='simple')
         from django.contrib.postgres.search import SearchHeadline, SearchRank
         from django.db.models import F
+
         return (
-            ConfigSnapshot.objects
-            .filter(source=self.source, search_vector=sq)
+            ConfigSnapshot.objects.filter(source=self.source, search_vector=sq)
             .annotate(rank=SearchRank(F('search_vector'), sq))
-            .annotate(headline=SearchHeadline(
-                'content', sq, config='simple',
-                start_sel='<mark>', stop_sel='</mark>',
-                max_words=30, min_words=10, max_fragments=2,
-            ))
+            .annotate(
+                headline=SearchHeadline(
+                    'content',
+                    sq,
+                    config='simple',
+                    start_sel='<mark>',
+                    stop_sel='</mark>',
+                    max_words=30,
+                    min_words=10,
+                    max_fragments=2,
+                )
+            )
             .order_by('-rank')
         )
 
@@ -238,6 +231,7 @@ class TestFTSSearchIntegration(TestCase):
 # 3. View: headline escaping (stored-XSS regression)
 # ---------------------------------------------------------------------------
 
+
 class TestSearchHeadlineEscaping(TestCase):
     """
     Config content is device-controlled (banners, descriptions).  The view must
@@ -249,20 +243,13 @@ class TestSearchHeadlineEscaping(TestCase):
     def setUpTestData(cls):
         site, manufacturer, device_type, device_role = _make_device_fixtures()
         cls.user = get_user_model().objects.create_superuser('search-admin')
-        cls.source = OxidizedSource.objects.create(
-            name='XSS Source', git_repo_path='/tmp/fake-repo-xss'
-        )
-        device = Device.objects.create(
-            name='evil-banner', site=site, device_type=device_type, role=device_role
-        )
+        cls.source = OxidizedSource.objects.create(name='XSS Source', git_repo_path='/tmp/fake-repo-xss')
+        device = Device.objects.create(name='evil-banner', site=site, device_type=device_type, role=device_role)
         # search_vector is a STORED generated column, populated by Postgres on insert.
         ConfigSnapshot.objects.create(
             device=device,
             source=cls.source,
-            content=(
-                'set / system banner login '
-                '<script>alert(1)</script> interface admin-state enable'
-            ),
+            content=('set / system banner login <script>alert(1)</script> interface admin-state enable'),
             commit_sha='b' * 40,
         )
 
@@ -301,12 +288,12 @@ class TestSearchHeadlineEscaping(TestCase):
 
 LAB_REPO_PATH = os.environ.get('OXIDIZED_LAB_REPO', '')
 
+
 @unittest.skipUnless(
     LAB_REPO_PATH and os.path.exists(LAB_REPO_PATH),
-    "Set OXIDIZED_LAB_REPO to a bare repo path to run lab integration",
+    'Set OXIDIZED_LAB_REPO to a bare repo path to run lab integration',
 )
 class TestLabIntegration(TestCase):
-
     @classmethod
     def setUpTestData(cls):
         site, manufacturer, device_type, device_role = _make_device_fixtures()
@@ -323,6 +310,7 @@ class TestLabIntegration(TestCase):
     def _index(self):
         """Run the indexing task synchronously for the lab source."""
         from netbox_oxidized_viewer.tasks import update_config_snapshots
+
         update_config_snapshots(source_pk=self.source.pk)
 
     def test_all_lab_devices_indexed(self):
@@ -331,8 +319,9 @@ class TestLabIntegration(TestCase):
         indexed_names = set(indexed.values_list('device__name', flat=True))
         for hostname in ('spine1', 'leaf1', 'leaf2'):
             self.assertIn(
-                hostname, indexed_names,
-                f"{hostname} was not indexed — check that its config file exists in the lab repo",
+                hostname,
+                indexed_names,
+                f'{hostname} was not indexed — check that its config file exists in the lab repo',
             )
 
     def test_interface_search_hits_all_three(self):
@@ -345,14 +334,8 @@ class TestLabIntegration(TestCase):
 
     def test_reindex_skips_unchanged_devices(self):
         self._index()
-        first_shas = {
-            snap.device.name: snap.commit_sha
-            for snap in ConfigSnapshot.objects.filter(source=self.source)
-        }
+        first_shas = {snap.device.name: snap.commit_sha for snap in ConfigSnapshot.objects.filter(source=self.source)}
         # Second run — nothing in the repo changed, so all should be skipped.
         self._index()
-        second_shas = {
-            snap.device.name: snap.commit_sha
-            for snap in ConfigSnapshot.objects.filter(source=self.source)
-        }
+        second_shas = {snap.device.name: snap.commit_sha for snap in ConfigSnapshot.objects.filter(source=self.source)}
         self.assertEqual(first_shas, second_shas)

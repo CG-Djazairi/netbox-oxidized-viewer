@@ -1,6 +1,6 @@
 from .models import OxidizedSource
-from .services.git_backend import GitBackend, RepositoryNotFound, InvalidRepository
 from .services.cache import CachedGitBackend
+from .services.git_backend import GitBackend, InvalidRepository, RepositoryNotFound
 
 
 def get_source():

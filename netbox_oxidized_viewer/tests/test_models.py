@@ -1,6 +1,7 @@
+from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
 from django.core.exceptions import ValidationError
 from django.test import TestCase
-from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
+
 from netbox_oxidized_viewer.models import OxidizedSource
 
 

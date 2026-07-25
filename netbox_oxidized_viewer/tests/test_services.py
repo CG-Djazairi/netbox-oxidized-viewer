@@ -38,7 +38,6 @@ class _StubBackend:
 
 @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
 class TestCachedGitBackend(SimpleTestCase):
-
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
@@ -80,7 +79,6 @@ class TestCachedGitBackend(SimpleTestCase):
 
 
 class TestOxidizedTrigger(SimpleTestCase):
-
     def test_empty_url_raises(self):
         with self.assertRaises(OxidizedAPIError):
             trigger_backup('', 'node1')
@@ -96,6 +94,6 @@ class TestOxidizedTrigger(SimpleTestCase):
 
     @mock.patch('netbox_oxidized_viewer.services.oxidized_api.requests.get')
     def test_connection_error_wrapped(self, mock_get):
-        mock_get.side_effect = requests.exceptions.ConnectionError("boom")
+        mock_get.side_effect = requests.exceptions.ConnectionError('boom')
         with self.assertRaises(OxidizedAPIError):
             trigger_backup('http://oxi:8888', 'sw1')

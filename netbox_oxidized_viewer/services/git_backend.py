@@ -1,11 +1,11 @@
 """
 Git repository interaction layer.
 
-This module provides a pure-Python (Dulwich-based) interface to read the 
-Oxidized bare git repository. 
+This module provides a pure-Python (Dulwich-based) interface to read the
+Oxidized bare git repository.
 
-Note: Caching is intentionally kept outside of this backend. `GitBackend` 
-handles pure repository interactions; a separate `CachedGitBackend` wrapper 
+Note: Caching is intentionally kept outside of this backend. `GitBackend`
+handles pure repository interactions; a separate `CachedGitBackend` wrapper
 or service layer will handle Redis caching to keep concerns separated.
 """
 
@@ -13,102 +13,111 @@ import datetime
 import difflib
 import os
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
 
-from dulwich.repo import Repo
 from dulwich.errors import NotGitRepository
 from dulwich.objects import Commit, Tree
-
+from dulwich.repo import Repo
 
 # --- Exceptions ---
 
+
 class GitBackendError(Exception):
     """Base exception for all git backend failures."""
+
     pass
 
 
 class RepositoryNotFound(GitBackendError):
     """Raised when the git repository path does not exist."""
+
     pass
 
 
 class InvalidRepository(GitBackendError):
     """Raised when the path exists but is not a valid git repository."""
+
     pass
 
 
 class CommitNotFound(GitBackendError):
     """Raised when a specified commit SHA cannot be found in the repository."""
+
     pass
 
 
 class FileNotFoundAtCommit(GitBackendError):
     """Raised when the specified file does not exist at the given commit."""
+
     pass
 
 
 # --- Domain Models ---
 
+
 @dataclass
 class CommitMeta:
     """Represents metadata for a single commit."""
+
     sha: str
     author_name: str
     author_email: str
     subject: str  # First line of the commit message
-    body: str     # Remainder of the commit message
+    body: str  # Remainder of the commit message
     timestamp: datetime.datetime
 
 
 @dataclass
 class DiffHunk:
     """Represents a single unified diff hunk."""
+
     old_start: int
     old_lines: int
     new_start: int
     new_lines: int
     # List of tuples: (marker, content)
     # marker is typically ' ', '+', or '-'
-    lines: List[Tuple[str, str]]
+    lines: list[tuple[str, str]]
 
 
 @dataclass
 class FileDiff:
     """Represents structured diff data for a single file between two commits."""
+
     old_sha: str
     new_sha: str
     filename: str
-    hunks: List[DiffHunk]
+    hunks: list[DiffHunk]
 
 
 # --- Backend Class ---
+
 
 class GitBackend:
     def __init__(self, repo_path: str):
         self.repo_path = repo_path
         if not os.path.exists(repo_path):
-            raise RepositoryNotFound(f"Repository path not found: {repo_path}")
-            
+            raise RepositoryNotFound(f'Repository path not found: {repo_path}')
+
         try:
             self.repo = Repo(repo_path)
-        except NotGitRepository:
-            raise InvalidRepository(f"Path is not a valid git repository: {repo_path}")
+        except NotGitRepository as exc:
+            raise InvalidRepository(f'Path is not a valid git repository: {repo_path}') from exc
 
-    def _parse_author(self, author_bytes: bytes) -> Tuple[str, str]:
+    def _parse_author(self, author_bytes: bytes) -> tuple[str, str]:
         """Parses b'Name <email@example.com>' into ('Name', 'email@example.com')."""
         author_str = author_bytes.decode('utf-8', errors='replace')
         if '<' in author_str and '>' in author_str:
             name, email_part = author_str.split('<', 1)
             email = email_part.split('>', 1)[0]
             return name.strip(), email.strip()
-        return author_str.strip(), ""
+        return author_str.strip(), ''
 
-    def _parse_message(self, message_bytes: bytes) -> Tuple[str, str]:
+    def _parse_message(self, message_bytes: bytes) -> tuple[str, str]:
         """Splits commit message into subject and body."""
         msg_str = message_bytes.decode('utf-8', errors='replace').strip()
         parts = msg_str.split('\n', 1)
         subject = parts[0].strip()
-        body = parts[1].strip() if len(parts) > 1 else ""
+        body = parts[1].strip() if len(parts) > 1 else ''
         return subject, body
 
     def _commit_to_meta(self, commit: Commit) -> CommitMeta:
@@ -118,18 +127,18 @@ class GitBackend:
         # Dulwich commit.commit_time is a Unix timestamp
         # timezone offset is in commit.commit_timezone (seconds west of UTC)
         # We'll use UTC for consistency
-        dt = datetime.datetime.fromtimestamp(commit.commit_time, tz=datetime.timezone.utc)
-        
+        dt = datetime.datetime.fromtimestamp(commit.commit_time, tz=datetime.UTC)
+
         return CommitMeta(
             sha=commit.id.decode('ascii'),
             author_name=name,
             author_email=email,
             subject=subject,
             body=body,
-            timestamp=dt
+            timestamp=dt,
         )
 
-    def _get_tree_item_sha(self, tree: Tree, filename: str) -> Optional[bytes]:
+    def _get_tree_item_sha(self, tree: Tree, filename: str) -> bytes | None:
         """Finds the blob SHA for a specific filename in a tree."""
         # Oxidized repos are flat, so we don't need deep tree traversal for now,
         # but a simple lookup is safer.
@@ -139,7 +148,7 @@ class GitBackend:
                 return sha
         return None
 
-    def list_files(self) -> List[str]:
+    def list_files(self) -> list[str]:
         """
         Returns a list of all files present in the HEAD commit.
         Useful for source validation.
@@ -149,9 +158,9 @@ class GitBackend:
             head_commit = self.repo[head_sha]
             tree = self.repo[head_commit.tree]
         except KeyError:
-             # Empty repository
-             return []
-             
+            # Empty repository
+            return []
+
         files = []
         for name, _, _ in tree.iteritems():
             files.append(name.decode('utf-8', errors='replace'))
@@ -170,7 +179,7 @@ class GitBackend:
             # KeyError if not found, ValueError if sha is invalid hex
             return False
 
-    def list_commits(self, filename: str, limit: int = 50) -> List[CommitMeta]:
+    def list_commits(self, filename: str, limit: int = 50) -> list[CommitMeta]:
         """
         Returns a chronological list of commits (newest first) that modified the given file.
         """
@@ -178,41 +187,40 @@ class GitBackend:
         try:
             head_sha = self.repo.head()
         except KeyError:
-            return [] # Empty repo
+            return []  # Empty repo
 
         walker = self.repo.get_walker(include=[head_sha])
-        filename_bytes = filename.encode('utf-8')
 
         for entry in walker:
             commit = entry.commit
-            
+
             # Check if file changed in this commit
             changed = False
             if not commit.parents:
-                 # Initial commit
-                 tree = self.repo[commit.tree]
-                 if self._get_tree_item_sha(tree, filename):
-                     changed = True
+                # Initial commit
+                tree = self.repo[commit.tree]
+                if self._get_tree_item_sha(tree, filename):
+                    changed = True
             else:
-                 # Compare with first parent
-                 parent_commit = self.repo[commit.parents[0]]
-                 parent_tree = self.repo[parent_commit.tree]
-                 curr_tree = self.repo[commit.tree]
-                 
-                 parent_blob_sha = self._get_tree_item_sha(parent_tree, filename)
-                 curr_blob_sha = self._get_tree_item_sha(curr_tree, filename)
-                 
-                 if parent_blob_sha != curr_blob_sha:
-                     changed = True
-                     
+                # Compare with first parent
+                parent_commit = self.repo[commit.parents[0]]
+                parent_tree = self.repo[parent_commit.tree]
+                curr_tree = self.repo[commit.tree]
+
+                parent_blob_sha = self._get_tree_item_sha(parent_tree, filename)
+                curr_blob_sha = self._get_tree_item_sha(curr_tree, filename)
+
+                if parent_blob_sha != curr_blob_sha:
+                    changed = True
+
             if changed:
                 commits.append(self._commit_to_meta(commit))
                 if len(commits) >= limit:
                     break
-                    
+
         return commits
 
-    def get_latest_commit(self, filename: str) -> Optional[CommitMeta]:
+    def get_latest_commit(self, filename: str) -> CommitMeta | None:
         """
         Returns the most recent commit that modified the given file.
         Returns None if the file doesn't exist in the repository's history.
@@ -242,10 +250,7 @@ class GitBackend:
 
         head_commit = self.repo[head_sha]
         head_tree = self.repo[head_commit.tree]
-        remaining = {
-            name.decode('utf-8', errors='replace')
-            for name, _, _ in head_tree.iteritems()
-        }
+        remaining = {name.decode('utf-8', errors='replace') for name, _, _ in head_tree.iteritems()}
         result: dict = {}
 
         for entry in self.repo.get_walker(include=[head_sha]):
@@ -278,25 +283,25 @@ class GitBackend:
             sha_bytes = sha.encode('ascii')
             commit = self.repo[sha_bytes]
             if not isinstance(commit, Commit):
-                raise CommitNotFound(f"SHA {sha} is not a commit")
-        except (KeyError, ValueError):
-            raise CommitNotFound(f"Commit not found: {sha}")
+                raise CommitNotFound(f'SHA {sha} is not a commit')
+        except (KeyError, ValueError) as exc:
+            raise CommitNotFound(f'Commit not found: {sha}') from exc
 
         tree = self.repo[commit.tree]
         blob_sha = self._get_tree_item_sha(tree, filename)
-        
+
         if not blob_sha:
-            raise FileNotFoundAtCommit(f"File {filename} not found at commit {sha}")
-            
+            raise FileNotFoundAtCommit(f'File {filename} not found at commit {sha}')
+
         blob = self.repo[blob_sha]
         return blob.data.decode('utf-8', errors='replace')
 
     @staticmethod
-    def _parse_hunk_header(info: str) -> Tuple[int, int]:
+    def _parse_hunk_header(info: str) -> tuple[int, int]:
         """Parse '-M,N' or '+M,N' hunk header fragment into (start, lines)."""
         if ',' in info:
-            s, l = info.split(',', 1)
-            return int(s), int(l)
+            start, length = info.split(',', 1)
+            return int(start), int(length)
         return int(info), 1
 
     def get_diff(self, filename: str, sha_old: str, sha_new: str) -> FileDiff:
@@ -305,8 +310,8 @@ class GitBackend:
         Handles file creation (missing at sha_old) and deletion (missing at sha_new).
         Raises CommitNotFound or FileNotFoundAtCommit as appropriate.
         """
-        old_content: List[str] = []
-        new_content: List[str] = []
+        old_content: list[str] = []
+        new_content: list[str] = []
 
         try:
             old_content = self.get_file_content(filename, sha_old).splitlines()
@@ -319,18 +324,20 @@ class GitBackend:
             pass  # file deleted in sha_new
 
         if not old_content and not new_content:
-            raise FileNotFoundAtCommit(
-                f"File '{filename}' not found at either commit {sha_old} or {sha_new}"
+            raise FileNotFoundAtCommit(f"File '{filename}' not found at either commit {sha_old} or {sha_new}")
+
+        raw_lines = list(
+            difflib.unified_diff(
+                old_content,
+                new_content,
+                fromfile=f'a/{filename}',
+                tofile=f'b/{filename}',
+                lineterm='',
             )
+        )
 
-        raw_lines = list(difflib.unified_diff(
-            old_content, new_content,
-            fromfile=f"a/{filename}", tofile=f"b/{filename}",
-            lineterm="",
-        ))
-
-        hunks: List[DiffHunk] = []
-        current_hunk: Optional[DiffHunk] = None
+        hunks: list[DiffHunk] = []
+        current_hunk: DiffHunk | None = None
 
         for line in raw_lines:
             if line.startswith('---') or line.startswith('+++'):
@@ -342,8 +349,10 @@ class GitBackend:
                 old_start, old_lines = self._parse_hunk_header(parts[1][1:])
                 new_start, new_lines = self._parse_hunk_header(parts[2][1:])
                 current_hunk = DiffHunk(
-                    old_start=old_start, old_lines=old_lines,
-                    new_start=new_start, new_lines=new_lines,
+                    old_start=old_start,
+                    old_lines=old_lines,
+                    new_start=new_start,
+                    new_lines=new_lines,
                     lines=[],
                 )
             elif current_hunk is not None:

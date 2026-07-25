@@ -75,26 +75,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r netbox/requirements.txt
-          pip install ./plugin
+          # Editable so the tests package (excluded from the wheel) is importable.
+          pip install -e ./plugin
 
       - name: Configure NetBox
         run: |
+          # Use NetBox's own testing config (points at localhost Postgres/Redis,
+          # which match the service containers), then enable the plugin.
           cp netbox/netbox/netbox/configuration_testing.py netbox/netbox/netbox/configuration.py
-          # Enable the plugin
           printf "\nPLUGINS = ['netbox_oxidized_viewer']\nPLUGINS_CONFIG = {'netbox_oxidized_viewer': {}}\n" \
             >> netbox/netbox/netbox/configuration.py
-        env:
-          DB_HOST: localhost
-          REDIS_HOST: localhost
 
-      - name: Run migrations and tests
+      - name: Run tests
         working-directory: netbox/netbox
-        env:
-          DB_HOST: localhost
-          DB_NAME: netbox
-          DB_USER: netbox
-          DB_PASSWORD: netbox
-          REDIS_HOST: localhost
-        run: |
-          python manage.py migrate
-          python manage.py test netbox_oxidized_viewer -v2
+        run: python manage.py test netbox_oxidized_viewer -v2

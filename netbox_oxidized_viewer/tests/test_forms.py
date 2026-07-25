@@ -15,13 +15,14 @@ from .test_tasks import _build_repo
 
 
 class TestOxidizedSourceForm(TestCase):
-
     def _form(self, path):
-        return OxidizedSourceForm(data={
-            'name': 'Lab',
-            'git_repo_path': path,
-            'node_name_source': 'name',
-        })
+        return OxidizedSourceForm(
+            data={
+                'name': 'Lab',
+                'git_repo_path': path,
+                'node_name_source': 'name',
+            }
+        )
 
     def test_valid_repo_passes(self):
         repo_path = tempfile.mkdtemp()

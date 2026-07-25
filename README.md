@@ -50,7 +50,7 @@ PLUGINS = ['netbox_oxidized_viewer']
 
 PLUGINS_CONFIG = {
     'netbox_oxidized_viewer': {
-        'git_repo_path': '/opt/oxidized-git',   # auto-provisions the source
+        'git_repo_path': '/opt/oxidized-git',  # auto-provisions the source
         # optional: 'node_name_source': 'name', 'api_url': 'http://oxidized:8888'
     },
 }

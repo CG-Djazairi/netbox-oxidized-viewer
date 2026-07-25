@@ -17,15 +17,13 @@ from .tasks import update_config_snapshots
 
 logger = logging.getLogger(__name__)
 
-INDEX_INTERVAL_MINUTES = get_plugin_config(
-    'netbox_oxidized_viewer', 'index_interval_minutes', default=60
-)
+INDEX_INTERVAL_MINUTES = get_plugin_config('netbox_oxidized_viewer', 'index_interval_minutes', default=60)
 
 
 @system_job(interval=INDEX_INTERVAL_MINUTES)
 class ConfigSnapshotIndexJob(JobRunner):
     class Meta:
-        name = "Update Oxidized config snapshots"
+        name = 'Update Oxidized config snapshots'
 
     def run(self, *args, **kwargs):
         update_config_snapshots()

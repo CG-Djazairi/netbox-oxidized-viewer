@@ -41,7 +41,8 @@ def provision_source_from_settings():
     )
     logger.info(
         "Auto-provisioned OxidizedSource '%s' from PLUGINS_CONFIG (git_repo_path=%s)",
-        source.name, repo_path,
+        source.name,
+        repo_path,
     )
     return source
 
@@ -54,4 +55,4 @@ def post_migrate_provision(sender, **kwargs):
     try:
         provision_source_from_settings()
     except Exception as exc:  # never let bootstrap break `migrate`
-        logger.warning("Oxidized source auto-provision skipped: %s", exc)
+        logger.warning('Oxidized source auto-provision skipped: %s', exc)

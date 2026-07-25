@@ -23,11 +23,7 @@ def update_config_snapshots(source_pk=None):
         via the RQ worker (see jobs.py).
       - Manually via: python manage.py reindex_oxidized
     """
-    sources = (
-        OxidizedSource.objects.filter(pk=source_pk)
-        if source_pk
-        else OxidizedSource.objects.all()
-    )
+    sources = OxidizedSource.objects.filter(pk=source_pk) if source_pk else OxidizedSource.objects.all()
 
     for source in sources:
         try:
@@ -42,10 +38,7 @@ def update_config_snapshots(source_pk=None):
         # Prefetch existing snapshots so the per-device loop does not issue a
         # query each iteration (ConfigSnapshot is one row per device).
         existing = {
-            snap.device_id: snap
-            for snap in ConfigSnapshot.objects.only(
-                'device_id', 'commit_sha', 'commit_timestamp'
-            )
+            snap.device_id: snap for snap in ConfigSnapshot.objects.only('device_id', 'commit_sha', 'commit_timestamp')
         }
 
         updated = skipped = errors = 0
@@ -72,8 +65,10 @@ def update_config_snapshots(source_pk=None):
                 content = backend.get_file_content(filename, latest.sha)
             except Exception as exc:
                 logger.warning(
-                    "Could not fetch content for %s @ %s: %s",
-                    filename, latest.sha[:7], exc,
+                    'Could not fetch content for %s @ %s: %s',
+                    filename,
+                    latest.sha[:7],
+                    exc,
                 )
                 errors += 1
                 continue
@@ -92,5 +87,8 @@ def update_config_snapshots(source_pk=None):
 
         logger.info(
             "Source '%s': %d updated, %d skipped (unchanged), %d errors.",
-            source.name, updated, skipped, errors,
+            source.name,
+            updated,
+            skipped,
+            errors,
         )

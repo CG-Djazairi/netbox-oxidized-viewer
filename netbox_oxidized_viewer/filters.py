@@ -1,5 +1,7 @@
 from netbox.filtersets import NetBoxModelFilterSet
+
 from .models import OxidizedSource
+
 
 class OxidizedSourceFilterSet(NetBoxModelFilterSet):
     class Meta:

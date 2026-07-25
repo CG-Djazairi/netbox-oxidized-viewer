@@ -1,12 +1,13 @@
 import datetime
 
+from dcim.models import Device
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, F
-from django.http import HttpResponse, Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.utils.html import escape
@@ -17,15 +18,15 @@ from django.views.generic import TemplateView
 from netbox.plugins import get_plugin_config
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
-from dcim.models import Device
-from . import models, forms, tables, filters
+
+from . import filters, forms, models, tables
+from .services.git_backend import CommitNotFound, FileNotFoundAtCommit, GitBackendError
 from .utils import (
     get_backend_and_filename_for_device,
     get_source,
     resolve_device_field,
     scope_device_queryset,
 )
-from .services.git_backend import CommitNotFound, FileNotFoundAtCommit, GitBackendError
 
 
 def _config_attachment(content, filename, content_type='text/plain; charset=utf-8'):
@@ -35,9 +36,7 @@ def _config_attachment(content, filename, content_type='text/plain; charset=utf-
     (Django 4.2+) handles RFC 5987 encoding so the header can't be broken or injected.
     """
     response = HttpResponse(content, content_type=content_type)
-    response['Content-Disposition'] = content_disposition_header(
-        as_attachment=True, filename=filename
-    )
+    response['Content-Disposition'] = content_disposition_header(as_attachment=True, filename=filename)
     return response
 
 
@@ -67,22 +66,26 @@ def _hunks_to_side_by_side(hunks):
             else:
                 n = max(len(pending_del), len(pending_add))
                 for i in range(n):
-                    rows.append({
-                        'type': 'change',
-                        'old': pending_del[i] if i < len(pending_del) else None,
-                        'new': pending_add[i] if i < len(pending_add) else None,
-                    })
+                    rows.append(
+                        {
+                            'type': 'change',
+                            'old': pending_del[i] if i < len(pending_del) else None,
+                            'new': pending_add[i] if i < len(pending_add) else None,
+                        }
+                    )
                 pending_del.clear()
                 pending_add.clear()
                 rows.append({'type': 'context', 'old': content, 'new': content})
 
         n = max(len(pending_del), len(pending_add))
         for i in range(n):
-            rows.append({
-                'type': 'change',
-                'old': pending_del[i] if i < len(pending_del) else None,
-                'new': pending_add[i] if i < len(pending_add) else None,
-            })
+            rows.append(
+                {
+                    'type': 'change',
+                    'old': pending_del[i] if i < len(pending_del) else None,
+                    'new': pending_add[i] if i < len(pending_add) else None,
+                }
+            )
 
         result.append({'meta': hunk, 'rows': rows})
     return result
@@ -97,9 +100,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         missing = []
         ok_count = stale_count = 0
         source = get_source()
-        stale_after_hours = get_plugin_config(
-            'netbox_oxidized_viewer', 'stale_after_hours'
-        ) or 26
+        stale_after_hours = get_plugin_config('netbox_oxidized_viewer', 'stale_after_hours') or 26
 
         if source:
             stale_before = timezone.now() - datetime.timedelta(hours=stale_after_hours)
@@ -109,8 +110,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             # for every device in NetBox.
             viewable = Device.objects.restrict(self.request.user, 'view')
             snapshots = (
-                models.ConfigSnapshot.objects
-                .filter(source=source, device__in=viewable)
+                models.ConfigSnapshot.objects.filter(source=source, device__in=viewable)
                 .select_related('device')
                 # NULLS LAST: rows indexed before the metadata backfill would
                 # otherwise sort to the top of a "newest first" list.
@@ -119,23 +119,22 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             indexed_ids = set()
             for snap in snapshots:
                 indexed_ids.add(snap.device_id)
-                is_stale = (
-                    snap.commit_timestamp is None
-                    or snap.commit_timestamp < stale_before
-                )
+                is_stale = snap.commit_timestamp is None or snap.commit_timestamp < stale_before
                 if is_stale:
                     stale_count += 1
                 else:
                     ok_count += 1
-                devices_data.append({
-                    'device': snap.device,
-                    'filename': resolve_device_field(snap.device, source.node_name_source),
-                    'commit_sha': snap.commit_sha,
-                    'commit_timestamp': snap.commit_timestamp,
-                    'commit_subject': snap.commit_subject,
-                    'indexed_at': snap.indexed_at,
-                    'is_stale': is_stale,
-                })
+                devices_data.append(
+                    {
+                        'device': snap.device,
+                        'filename': resolve_device_field(snap.device, source.node_name_source),
+                        'commit_sha': snap.commit_sha,
+                        'commit_timestamp': snap.commit_timestamp,
+                        'commit_subject': snap.commit_subject,
+                        'indexed_at': snap.indexed_at,
+                        'is_stale': is_stale,
+                    }
+                )
 
             # Never-backed-up: active, in-scope, viewable devices whose node name
             # resolves (so they *should* have a backup) but that have no snapshot.
@@ -150,16 +149,18 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 if filename:
                     missing.append({'device': device, 'filename': filename})
 
-        context.update({
-            'devices_data': devices_data,
-            'missing': missing,
-            'ok_count': ok_count,
-            'stale_count': stale_count,
-            'missing_count': len(missing),
-            'total_count': len(devices_data),
-            'stale_after_hours': stale_after_hours,
-            'source': source,
-        })
+        context.update(
+            {
+                'devices_data': devices_data,
+                'missing': missing,
+                'ok_count': ok_count,
+                'stale_count': stale_count,
+                'missing_count': len(missing),
+                'total_count': len(devices_data),
+                'stale_after_hours': stale_after_hours,
+                'source': source,
+            }
+        )
         return context
 
 
@@ -184,9 +185,7 @@ class OxidizedSourceEditView(generic.ObjectEditView):
         if 'pk' not in kwargs:
             existing = get_source()
             if existing:
-                return redirect(
-                    'plugins:netbox_oxidized_viewer:oxidizedsource_edit', pk=existing.pk
-                )
+                return redirect('plugins:netbox_oxidized_viewer:oxidizedsource_edit', pk=existing.pk)
         return super().get(request, *args, **kwargs)
 
 
@@ -203,6 +202,7 @@ class SourceReindexView(LoginRequiredMixin, View):
         if not request.user.has_perm('netbox_oxidized_viewer.change_oxidizedsource'):
             raise PermissionDenied
         from .jobs import ConfigSnapshotIndexJob
+
         job = ConfigSnapshotIndexJob.enqueue(instance=source, user=request.user)
         messages.success(
             request,
@@ -215,11 +215,7 @@ class SourceReindexView(LoginRequiredMixin, View):
 class DeviceConfigView(generic.ObjectView):
     queryset = Device.objects.all()
     template_name = 'netbox_oxidized_viewer/device_config_tab.html'
-    tab = ViewTab(
-        label='Config History',
-        permission='dcim.view_device',
-        weight=500
-    )
+    tab = ViewTab(label='Config History', permission='dcim.view_device', weight=500)
 
     def get_extra_context(self, request, instance):
         backend, filename = get_backend_and_filename_for_device(instance)
@@ -238,17 +234,16 @@ class DeviceConfigView(generic.ObjectView):
                 except (CommitNotFound, FileNotFoundAtCommit) as e:
                     error_message = str(e)
             else:
-                error_message = f"No configuration backups found for this device (filename: {filename})."
+                error_message = f'No configuration backups found for this device (filename: {filename}).'
         else:
-            error_message = "No valid Oxidized Source mapping found for this device or Git repository is invalid."
+            error_message = 'No valid Oxidized Source mapping found for this device or Git repository is invalid.'
 
         # Per-commit note counts, so the history table can show a badge without
         # a query per row.
         note_counts = {}
         if commits:
             for row in (
-                models.ConfigCommitNote.objects
-                .filter(device=instance, commit_sha__in=[c.sha for c in commits])
+                models.ConfigCommitNote.objects.filter(device=instance, commit_sha__in=[c.sha for c in commits])
                 .values('commit_sha')
                 .annotate(n=Count('pk'))
             ):
@@ -306,9 +301,7 @@ class ConfigDiffView(generic.ObjectView):
         notes = []
         if sha_new:
             notes = list(
-                models.ConfigCommitNote.objects
-                .filter(device=instance, commit_sha=sha_new)
-                .select_related('created_by')
+                models.ConfigCommitNote.objects.filter(device=instance, commit_sha=sha_new).select_related('created_by')
             )
 
         return {
@@ -328,6 +321,7 @@ class ConfigDiffView(generic.ObjectView):
 # object-level RBAC does not come for free: each lookup must go through
 # .restrict() or a user could fetch any device's config by guessing PKs.
 
+
 class DeviceConfigDownloadView(View):
     def get(self, request, pk):
         backend, filename = _device_backend_or_404(request, pk)
@@ -336,9 +330,9 @@ class DeviceConfigDownloadView(View):
             raise Http404
         try:
             content = backend.get_file_content(filename, latest.sha)
-        except GitBackendError:
-            raise Http404
-        return _config_attachment(content, f"{filename}.txt")
+        except GitBackendError as exc:
+            raise Http404 from exc
+        return _config_attachment(content, f'{filename}.txt')
 
 
 class CommitConfigDownloadView(View):
@@ -346,9 +340,9 @@ class CommitConfigDownloadView(View):
         backend, filename = _device_backend_or_404(request, pk)
         try:
             content = backend.get_file_content(filename, sha)
-        except GitBackendError:
-            raise Http404
-        return _config_attachment(content, f"{filename}-{sha[:7]}.txt")
+        except GitBackendError as exc:
+            raise Http404 from exc
+        return _config_attachment(content, f'{filename}-{sha[:7]}.txt')
 
 
 class DiffDownloadView(View):
@@ -356,19 +350,19 @@ class DiffDownloadView(View):
         backend, filename = _device_backend_or_404(request, pk)
         try:
             diff_data = backend.get_diff(filename, sha_old, sha_new)
-        except GitBackendError:
-            raise Http404
+        except GitBackendError as exc:
+            raise Http404 from exc
 
-        lines = [f"--- a/{filename}", f"+++ b/{filename}"]
+        lines = [f'--- a/{filename}', f'+++ b/{filename}']
         for hunk in diff_data.hunks:
-            lines.append(f"@@ -{hunk.old_start},{hunk.old_lines} +{hunk.new_start},{hunk.new_lines} @@")
+            lines.append(f'@@ -{hunk.old_start},{hunk.old_lines} +{hunk.new_start},{hunk.new_lines} @@')
             for marker, content in hunk.lines:
-                lines.append(f"{marker}{content}")
-        patch_text = "\n".join(lines) + "\n"
+                lines.append(f'{marker}{content}')
+        patch_text = '\n'.join(lines) + '\n'
 
         return _config_attachment(
             patch_text,
-            f"{filename}-{sha_old[:7]}-{sha_new[:7]}.patch",
+            f'{filename}-{sha_old[:7]}-{sha_new[:7]}.patch',
             content_type='text/x-patch; charset=utf-8',
         )
 
@@ -391,9 +385,7 @@ class ConfigSearchView(LoginRequiredMixin, TemplateView):
     def _render_headline(cls, raw_headline):
         escaped = escape(raw_headline)
         return mark_safe(
-            escaped
-            .replace(cls.HEADLINE_START_SENTINEL, '<mark>')
-            .replace(cls.HEADLINE_STOP_SENTINEL, '</mark>')
+            escaped.replace(cls.HEADLINE_START_SENTINEL, '<mark>').replace(cls.HEADLINE_STOP_SENTINEL, '</mark>')
         )
 
     def get_context_data(self, **kwargs):
@@ -409,16 +401,18 @@ class ConfigSearchView(LoginRequiredMixin, TemplateView):
             if source:
                 results, total_count, page_obj = self._fts_search(query, source)
             else:
-                error = "No Oxidized source configured."
+                error = 'No Oxidized source configured.'
 
-        context.update({
-            'query': query,
-            'results': results,
-            'page_obj': page_obj,
-            'error': error,
-            'total_count': total_count,
-            'page_size': self.SEARCH_PAGE_SIZE,
-        })
+        context.update(
+            {
+                'query': query,
+                'results': results,
+                'page_obj': page_obj,
+                'error': error,
+                'total_count': total_count,
+                'page_size': self.SEARCH_PAGE_SIZE,
+            }
+        )
         return context
 
     def _fts_search(self, query, source):
@@ -429,8 +423,7 @@ class ConfigSearchView(LoginRequiredMixin, TemplateView):
         # Rank-ordered queryset of bare PKs — no headline, so COUNT(*) and the
         # OFFSET/LIMIT page slice stay cheap regardless of total match count.
         ranked_pks = (
-            models.ConfigSnapshot.objects
-            .filter(source=source, search_vector=sq, device__in=allowed_devices)
+            models.ConfigSnapshot.objects.filter(source=source, search_vector=sq, device__in=allowed_devices)
             # F('search_vector') references the stored tsvector column directly;
             # passing the bare name re-runs to_tsvector() on it and zeroes the rank.
             .annotate(rank=SearchRank(F('search_vector'), sq))
@@ -444,12 +437,12 @@ class ConfigSearchView(LoginRequiredMixin, TemplateView):
         # Re-fetch only this page's rows with the (expensive) headline annotation,
         # preserving rank order.
         page_qs = (
-            models.ConfigSnapshot.objects
-            .filter(pk__in=list(page_obj.object_list))
+            models.ConfigSnapshot.objects.filter(pk__in=list(page_obj.object_list))
             .annotate(
                 rank=SearchRank(F('search_vector'), sq),
                 headline=SearchHeadline(
-                    'content', sq,
+                    'content',
+                    sq,
                     config='simple',
                     start_sel=self.HEADLINE_START_SENTINEL,
                     stop_sel=self.HEADLINE_STOP_SENTINEL,
@@ -497,11 +490,14 @@ class AddCommitNoteView(LoginRequiredMixin, View):
         message = request.POST.get('message', '').strip()
         if message:
             models.ConfigCommitNote.objects.create(
-                device=device, commit_sha=sha, message=message, created_by=request.user,
+                device=device,
+                commit_sha=sha,
+                message=message,
+                created_by=request.user,
             )
-            messages.success(request, "Note added.")
+            messages.success(request, 'Note added.')
         else:
-            messages.warning(request, "Note was empty — nothing saved.")
+            messages.warning(request, 'Note was empty — nothing saved.')
         return redirect('plugins:netbox_oxidized_viewer:device_commit', pk=device.pk, sha_new=sha)
 
 
@@ -513,7 +509,7 @@ class DeviceSyncView(LoginRequiredMixin, View):
         device = get_object_or_404(Device.objects.restrict(request.user, 'view'), pk=pk)
         source = get_source()
         if not source or not source.api_url:
-            messages.error(request, "No Oxidized API URL is configured on the source.")
+            messages.error(request, 'No Oxidized API URL is configured on the source.')
             return redirect('plugins:netbox_oxidized_viewer:device_oxidized_config', pk=device.pk)
 
         node = resolve_device_field(device, source.node_name_source)
@@ -522,12 +518,13 @@ class DeviceSyncView(LoginRequiredMixin, View):
             return redirect('plugins:netbox_oxidized_viewer:device_oxidized_config', pk=device.pk)
 
         from .services.oxidized_api import OxidizedAPIError, trigger_backup
+
         try:
             trigger_backup(source.api_url, node)
             messages.success(
                 request,
                 f"Backup requested for '{node}'. Oxidized will poll it shortly; "
-                "reindex or wait for the next cycle to see the new commit.",
+                'reindex or wait for the next cycle to see the new commit.',
             )
         except OxidizedAPIError as exc:
             messages.error(request, str(exc))

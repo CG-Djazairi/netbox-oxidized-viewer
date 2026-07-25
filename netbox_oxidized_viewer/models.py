@@ -10,34 +10,30 @@ from netbox.models import NetBoxModel
 
 
 class OxidizedSource(NetBoxModel):
-    name = models.CharField(
-        max_length=100,
-        unique=True,
-        help_text=_("A unique name for this Oxidized source")
-    )
+    name = models.CharField(max_length=100, unique=True, help_text=_('A unique name for this Oxidized source'))
     git_repo_path = models.CharField(
         max_length=255,
-        help_text=_("Path to the bare git repository inside the NetBox container (e.g., /opt/oxidized-git)")
+        help_text=_('Path to the bare git repository inside the NetBox container (e.g., /opt/oxidized-git)'),
     )
     node_name_source = models.CharField(
         max_length=100,
         default='name',
         help_text=_(
-            "Device field used to match the Oxidized node name. "
-            "Use any device attribute (e.g. name, serial, asset_tag, primary_ip4) "
-            "or a custom field prefixed with cf_ (e.g. cf_oxidized_name). "
+            'Device field used to match the Oxidized node name. '
+            'Use any device attribute (e.g. name, serial, asset_tag, primary_ip4) '
+            'or a custom field prefixed with cf_ (e.g. cf_oxidized_name). '
             "Defaults to 'name' (device hostname)."
-        )
+        ),
     )
     api_url = models.URLField(
         blank=True,
         default='',
         help_text=_(
-            "Optional Oxidized REST API base URL (e.g. http://oxidized:8888), used "
-            "only to trigger on-demand backups from NetBox. The plugin still reads "
+            'Optional Oxidized REST API base URL (e.g. http://oxidized:8888), used '
+            'only to trigger on-demand backups from NetBox. The plugin still reads '
             "history from git — this never replaces the git repo. Oxidized's API is "
-            "unauthenticated, so restrict network access to it."
-        )
+            'unauthenticated, so restrict network access to it.'
+        ),
     )
     # Scope: which devices are in Oxidized's remit. A device is in scope when it
     # matches every filter that is set (roles AND platforms AND tags); an empty
@@ -46,16 +42,22 @@ class OxidizedSource(NetBoxModel):
     # both the exported inventory (so Oxidized never polls them) and the
     # "never backed up" dashboard list.
     scope_roles = models.ManyToManyField(
-        to='dcim.DeviceRole', blank=True, related_name='+',
-        help_text=_("Only back up devices with these roles (blank = any role)."),
+        to='dcim.DeviceRole',
+        blank=True,
+        related_name='+',
+        help_text=_('Only back up devices with these roles (blank = any role).'),
     )
     scope_platforms = models.ManyToManyField(
-        to='dcim.Platform', blank=True, related_name='+',
-        help_text=_("Only back up devices with these platforms (blank = any platform)."),
+        to='dcim.Platform',
+        blank=True,
+        related_name='+',
+        help_text=_('Only back up devices with these platforms (blank = any platform).'),
     )
     scope_tags = models.ManyToManyField(
-        to='extras.Tag', blank=True, related_name='+',
-        help_text=_("Only back up devices carrying at least one of these tags (blank = any)."),
+        to='extras.Tag',
+        blank=True,
+        related_name='+',
+        help_text=_('Only back up devices carrying at least one of these tags (blank = any).'),
     )
 
     class Meta:
@@ -68,9 +70,7 @@ class OxidizedSource(NetBoxModel):
             # index on a constant expression permits exactly one row, so a second
             # source cannot be created even by paths that skip clean() (nbshell,
             # scripts, or two form submissions racing the exists() check).
-            models.UniqueConstraint(
-                Value(True), name='netbox_oxi_single_source'
-            ),
+            models.UniqueConstraint(Value(True), name='netbox_oxi_single_source'),
         ]
 
     def __str__(self):
@@ -85,10 +85,8 @@ class OxidizedSource(NetBoxModel):
         # (the constraint alone would surface as an IntegrityError 500).
         if OxidizedSource.objects.exclude(pk=self.pk).exists():
             raise ValidationError(
-                _("Only one Oxidized source can be configured. "
-                  "Edit the existing source instead of adding another.")
+                _('Only one Oxidized source can be configured. Edit the existing source instead of adding another.')
             )
-
 
 
 class ConfigSnapshot(models.Model):
@@ -97,6 +95,7 @@ class ConfigSnapshot(models.Model):
     Postgres tsvector for full-text search.  Populated exclusively by the
     update_config_snapshots indexing job; never written by user-facing code.
     """
+
     # TODO: revisit if multi-source becomes a real use case (currently one source per device)
     device = models.OneToOneField(
         to='dcim.Device',
@@ -131,7 +130,7 @@ class ConfigSnapshot(models.Model):
         indexes = [GinIndex(fields=['search_vector'], name='netbox_oxi_cfgsnapshot_sv_gin')]
 
     def __str__(self):
-        return f"Snapshot({self.device_id}, {self.commit_sha[:7]})"
+        return f'Snapshot({self.device_id}, {self.commit_sha[:7]})'
 
 
 class ConfigCommitNote(models.Model):
@@ -144,6 +143,7 @@ class ConfigCommitNote(models.Model):
     toward Oxidized's repository, and notes work even for historical commits
     (whose git messages are immutable).
     """
+
     device = models.ForeignKey(
         to='dcim.Device',
         on_delete=models.CASCADE,
@@ -165,4 +165,4 @@ class ConfigCommitNote(models.Model):
         indexes = [models.Index(fields=['device', 'commit_sha'])]
 
     def __str__(self):
-        return f"Note on {self.device_id}@{self.commit_sha[:7]}"
+        return f'Note on {self.device_id}@{self.commit_sha[:7]}'

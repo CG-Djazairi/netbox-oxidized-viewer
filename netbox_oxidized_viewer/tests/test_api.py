@@ -3,21 +3,17 @@ Tests for the Oxidized inventory API endpoint (OxidizedInventoryView), which
 returns the active-device list in Oxidized's HTTP source format.
 """
 
-from core.models import ObjectType
-from django.contrib.auth import get_user_model
-from django.test import TestCase
-from rest_framework.test import APIRequestFactory, force_authenticate
-from users.models import ObjectPermission
-
 import shutil
 import tempfile
 from unittest import mock
 
-from django.test import override_settings
-
+from core.models import ObjectType
 from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Platform, Site
+from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
+from rest_framework.test import APIRequestFactory, force_authenticate
+from users.models import ObjectPermission
 
-from netbox_oxidized_viewer.models import ConfigCommitNote, OxidizedSource
 from netbox_oxidized_viewer.api.views import (
     DeviceCommitNoteAPIView,
     DeviceConfigAPIView,
@@ -26,6 +22,7 @@ from netbox_oxidized_viewer.api.views import (
     DeviceSyncAPIView,
     OxidizedInventoryView,
 )
+from netbox_oxidized_viewer.models import ConfigCommitNote, OxidizedSource
 
 from .test_tasks import _build_repo
 
@@ -54,7 +51,6 @@ def _grant_device_view(user, constraints=None):
 
 
 class TestOxidizedInventoryView(TestCase):
-
     @classmethod
     def setUpTestData(cls):
         cls.user = get_user_model().objects.create_user('tester', password='x')
@@ -62,9 +58,7 @@ class TestOxidizedInventoryView(TestCase):
         cls.unprivileged = get_user_model().objects.create_user('nobody', password='x')
         cls.site = Site.objects.create(name='Site', slug='site')
         manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
-        cls.device_type = DeviceType.objects.create(
-            manufacturer=manufacturer, model='SR Linux', slug='sr-linux'
-        )
+        cls.device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
         cls.role = DeviceRole.objects.create(name='Router', slug='router')
 
     def _get(self, authenticate=True, user=None):
@@ -88,8 +82,11 @@ class TestOxidizedInventoryView(TestCase):
         OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
         for name in ('spine1', 'leaf1'):
             Device.objects.create(
-                name=name, site=self.site, device_type=self.device_type,
-                role=self.role, status='active',
+                name=name,
+                site=self.site,
+                device_type=self.device_type,
+                role=self.role,
+                status='active',
             )
         response = self._get(user=constrained)
         self.assertEqual(response.status_code, 200)
@@ -103,8 +100,11 @@ class TestOxidizedInventoryView(TestCase):
     def test_returns_active_devices(self):
         OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
         Device.objects.create(
-            name='spine1', site=self.site, device_type=self.device_type,
-            role=self.role, status='active',
+            name='spine1',
+            site=self.site,
+            device_type=self.device_type,
+            role=self.role,
+            status='active',
         )
         response = self._get()
         self.assertEqual(response.status_code, 200)
@@ -112,7 +112,7 @@ class TestOxidizedInventoryView(TestCase):
         entry = response.data[0]
         self.assertEqual(entry['name'], 'spine1')
         self.assertEqual(entry['model'], 'sr linux')  # device_type.model.lower()
-        self.assertEqual(entry['ip'], '')               # no primary_ip4 assigned
+        self.assertEqual(entry['ip'], '')  # no primary_ip4 assigned
 
     def test_model_uses_platform_slug_when_set(self):
         # Oxidized's model field is a driver name → NetBox platform, not the
@@ -120,8 +120,12 @@ class TestOxidizedInventoryView(TestCase):
         OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
         platform = Platform.objects.create(name='Arista EOS', slug='eos')
         Device.objects.create(
-            name='spine1', site=self.site, device_type=self.device_type,
-            role=self.role, platform=platform, status='active',
+            name='spine1',
+            site=self.site,
+            device_type=self.device_type,
+            role=self.role,
+            platform=platform,
+            status='active',
         )
         entry = self._get().data[0]
         self.assertEqual(entry['model'], 'eos')
@@ -131,8 +135,12 @@ class TestOxidizedInventoryView(TestCase):
         OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
         platform = Platform.objects.create(name='Cisco IOS XE', slug='cisco-ios-xe')
         Device.objects.create(
-            name='rtr1', site=self.site, device_type=self.device_type,
-            role=self.role, platform=platform, status='active',
+            name='rtr1',
+            site=self.site,
+            device_type=self.device_type,
+            role=self.role,
+            platform=platform,
+            status='active',
         )
         entry = self._get().data[0]
         self.assertEqual(entry['model'], 'ios')
@@ -141,8 +149,11 @@ class TestOxidizedInventoryView(TestCase):
     def test_group_field_exported_when_configured(self):
         OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
         Device.objects.create(
-            name='spine1', site=self.site, device_type=self.device_type,
-            role=self.role, status='active',
+            name='spine1',
+            site=self.site,
+            device_type=self.device_type,
+            role=self.role,
+            status='active',
         )
         entry = self._get().data[0]
         self.assertEqual(entry['group'], 'Site')
@@ -150,20 +161,29 @@ class TestOxidizedInventoryView(TestCase):
     def test_no_group_field_by_default(self):
         OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
         Device.objects.create(
-            name='spine1', site=self.site, device_type=self.device_type,
-            role=self.role, status='active',
+            name='spine1',
+            site=self.site,
+            device_type=self.device_type,
+            role=self.role,
+            status='active',
         )
         self.assertNotIn('group', self._get().data[0])
 
     def test_excludes_inactive_devices(self):
         OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
         Device.objects.create(
-            name='active-dev', site=self.site, device_type=self.device_type,
-            role=self.role, status='active',
+            name='active-dev',
+            site=self.site,
+            device_type=self.device_type,
+            role=self.role,
+            status='active',
         )
         Device.objects.create(
-            name='offline-dev', site=self.site, device_type=self.device_type,
-            role=self.role, status='offline',
+            name='offline-dev',
+            site=self.site,
+            device_type=self.device_type,
+            role=self.role,
+            status='offline',
         )
         response = self._get()
         names = {e['name'] for e in response.data}
@@ -175,12 +195,18 @@ class TestOxidizedInventoryView(TestCase):
         source = OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
         server_role = DeviceRole.objects.create(name='Server', slug='server')
         Device.objects.create(
-            name='rtr1', site=self.site, device_type=self.device_type,
-            role=self.role, status='active',
+            name='rtr1',
+            site=self.site,
+            device_type=self.device_type,
+            role=self.role,
+            status='active',
         )
         Device.objects.create(
-            name='srv1', site=self.site, device_type=self.device_type,
-            role=server_role, status='active',
+            name='srv1',
+            site=self.site,
+            device_type=self.device_type,
+            role=server_role,
+            status='active',
         )
         source.scope_roles.add(self.role)  # only the Router role is in scope
         names = {e['name'] for e in self._get().data}
@@ -190,7 +216,9 @@ class TestOxidizedInventoryView(TestCase):
         # Backward-compatible: no scope configured → every active device.
         OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
         other = DeviceRole.objects.create(name='Server', slug='server')
-        Device.objects.create(name='rtr1', site=self.site, device_type=self.device_type, role=self.role, status='active')
+        Device.objects.create(
+            name='rtr1', site=self.site, device_type=self.device_type, role=self.role, status='active'
+        )
         Device.objects.create(name='srv1', site=self.site, device_type=self.device_type, role=other, status='active')
         names = {e['name'] for e in self._get().data}
         self.assertEqual(names, {'rtr1', 'srv1'})
@@ -205,13 +233,14 @@ class TestDeviceConfigAPI(TestCase):
         cls.plain_user = get_user_model().objects.create_user('cfg-nobody')
         cls.site = Site.objects.create(name='Site', slug='site')
         manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
-        cls.device_type = DeviceType.objects.create(
-            manufacturer=manufacturer, model='SR Linux', slug='sr-linux'
-        )
+        cls.device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
         cls.role = DeviceRole.objects.create(name='Router', slug='router')
         cls.device = Device.objects.create(
-            name='spine1', site=cls.site, device_type=cls.device_type,
-            role=cls.role, status='active',
+            name='spine1',
+            site=cls.site,
+            device_type=cls.device_type,
+            role=cls.role,
+            status='active',
         )
 
     def setUp(self):
@@ -219,8 +248,10 @@ class TestDeviceConfigAPI(TestCase):
         self.addCleanup(shutil.rmtree, self.repo_path, ignore_errors=True)
         self.sha1 = _build_repo(self.repo_path, {'spine1': 'admin-state enable\n'})
         self.sha2 = _build_repo(
-            self.repo_path, {'spine1': 'admin-state disable\n'},
-            parent=self.sha1, when=(2024, 2, 1),
+            self.repo_path,
+            {'spine1': 'admin-state disable\n'},
+            parent=self.sha1,
+            when=(2024, 2, 1),
         )
         self.source = OxidizedSource.objects.create(name='Lab', git_repo_path=self.repo_path)
 
@@ -258,8 +289,11 @@ class TestDeviceConfigAPI(TestCase):
 
     def test_diff(self):
         resp = self._get(
-            DeviceDiffAPIView, self.superuser,
-            pk=self.device.pk, sha_old=self.sha1, sha_new=self.sha2,
+            DeviceDiffAPIView,
+            self.superuser,
+            pk=self.device.pk,
+            sha_old=self.sha1,
+            sha_new=self.sha2,
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['old_sha'], self.sha1)
@@ -269,8 +303,11 @@ class TestDeviceConfigAPI(TestCase):
 
     def test_diff_denied_without_permission(self):
         resp = self._get(
-            DeviceDiffAPIView, self.plain_user,
-            pk=self.device.pk, sha_old=self.sha1, sha_new=self.sha2,
+            DeviceDiffAPIView,
+            self.plain_user,
+            pk=self.device.pk,
+            sha_old=self.sha1,
+            sha_new=self.sha2,
         )
         self.assertEqual(resp.status_code, 404)
 
@@ -282,9 +319,7 @@ class TestCommitNoteAPI(TestCase):
     def setUpTestData(cls):
         site = Site.objects.create(name='Site', slug='site')
         manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
-        device_type = DeviceType.objects.create(
-            manufacturer=manufacturer, model='SR Linux', slug='sr-linux'
-        )
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
         role = DeviceRole.objects.create(name='Router', slug='router')
         cls.device = Device.objects.create(
             name='spine1', site=site, device_type=device_type, role=role, status='active'
@@ -308,9 +343,7 @@ class TestCommitNoteAPI(TestCase):
     def test_author_creates_note(self):
         resp = self._post(self.author, 'change #4211: bump MTU')
         self.assertEqual(resp.status_code, 201)
-        self.assertTrue(
-            ConfigCommitNote.objects.filter(device=self.device, commit_sha=self.sha).exists()
-        )
+        self.assertTrue(ConfigCommitNote.objects.filter(device=self.device, commit_sha=self.sha).exists())
 
     def test_get_lists_notes(self):
         ConfigCommitNote.objects.create(device=self.device, commit_sha=self.sha, message='hi')
@@ -337,14 +370,11 @@ class TestCommitNoteAPI(TestCase):
 
 
 class TestDeviceSyncAPI(TestCase):
-
     @classmethod
     def setUpTestData(cls):
         site = Site.objects.create(name='Site', slug='site')
         manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
-        device_type = DeviceType.objects.create(
-            manufacturer=manufacturer, model='SR Linux', slug='sr-linux'
-        )
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
         role = DeviceRole.objects.create(name='Router', slug='router')
         cls.device = Device.objects.create(
             name='spine1', site=site, device_type=device_type, role=role, status='active'
@@ -358,9 +388,7 @@ class TestDeviceSyncAPI(TestCase):
 
     @mock.patch('netbox_oxidized_viewer.services.oxidized_api.trigger_backup')
     def test_sync_triggers_backup(self, mock_trigger):
-        OxidizedSource.objects.create(
-            name='Lab', git_repo_path='/tmp/repo', api_url='http://oxi:8888'
-        )
+        OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo', api_url='http://oxi:8888')
         resp = self._post()
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['node'], 'spine1')

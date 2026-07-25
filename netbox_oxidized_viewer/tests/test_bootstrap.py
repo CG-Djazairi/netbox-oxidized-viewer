@@ -12,13 +12,16 @@ from netbox_oxidized_viewer.models import OxidizedSource
 
 
 class TestProvisionFromSettings(TestCase):
-
-    @override_settings(PLUGINS_CONFIG={'netbox_oxidized_viewer': {
-        'git_repo_path': '/opt/oxidized-git',
-        'source_name': 'auto',
-        'node_name_source': 'serial',
-        'api_url': 'http://oxidized:8888',
-    }})
+    @override_settings(
+        PLUGINS_CONFIG={
+            'netbox_oxidized_viewer': {
+                'git_repo_path': '/opt/oxidized-git',
+                'source_name': 'auto',
+                'node_name_source': 'serial',
+                'api_url': 'http://oxidized:8888',
+            }
+        }
+    )
     def test_creates_source_when_configured(self):
         created = provision_source_from_settings()
         self.assertIsNotNone(created)
@@ -32,7 +35,7 @@ class TestProvisionFromSettings(TestCase):
     def test_defaults_applied(self):
         provision_source_from_settings()
         s = OxidizedSource.objects.get()
-        self.assertEqual(s.name, 'default')          # default source_name
+        self.assertEqual(s.name, 'default')  # default source_name
         self.assertEqual(s.node_name_source, 'name')  # default mapping
 
     @override_settings(PLUGINS_CONFIG={'netbox_oxidized_viewer': {'git_repo_path': '/opt/oxidized-git'}})

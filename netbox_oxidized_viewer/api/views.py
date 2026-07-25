@@ -1,10 +1,9 @@
+from dcim.models import Device
 from django.shortcuts import get_object_or_404
 from netbox.plugins import get_plugin_config
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-from dcim.models import Device
 
 from ..models import ConfigCommitNote
 from ..services.git_backend import GitBackendError
@@ -32,7 +31,8 @@ class CanViewDevices(BasePermission):
     The inventory is a full device/IP listing — gate it behind the standard
     NetBox device-view permission rather than bare authentication.
     """
-    message = "This endpoint requires the dcim.view_device permission."
+
+    message = 'This endpoint requires the dcim.view_device permission.'
 
     def has_permission(self, request, view):
         return request.user.has_perm('dcim.view_device')
@@ -51,7 +51,7 @@ def _oxidized_model(device, platform_map):
         return platform_map.get(slug, slug)
     if device.device_type:
         return device.device_type.model.lower()
-    return "unknown"
+    return 'unknown'
 
 
 class OxidizedInventoryView(APIView):
@@ -59,6 +59,7 @@ class OxidizedInventoryView(APIView):
     Returns the device inventory in Oxidized's HTTP source format.
     Endpoint: GET /api/plugins/oxidized-viewer/source/
     """
+
     permission_classes = [IsAuthenticated, CanViewDevices]
 
     def get(self, request, *args, **kwargs):
@@ -86,14 +87,14 @@ class OxidizedInventoryView(APIView):
             if not name:
                 continue
             entry = {
-                "name": name,
-                "model": _oxidized_model(device, platform_map),
-                "ip": str(device.primary_ip4.address.ip) if device.primary_ip4 else "",
+                'name': name,
+                'model': _oxidized_model(device, platform_map),
+                'ip': str(device.primary_ip4.address.ip) if device.primary_ip4 else '',
             }
             if group_field:
                 group = resolve_device_field(device, group_field)
                 if group:
-                    entry["group"] = group
+                    entry['group'] = group
             inventory.append(entry)
 
         return Response(inventory)
@@ -104,6 +105,7 @@ class OxidizedInventoryView(APIView):
 # Automation (Ansible pre/post-change, CI, scripts) can pull configs through a
 # NetBox token instead of Oxidized's unauthenticated REST API.
 # ---------------------------------------------------------------------------
+
 
 class _DeviceGitAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -136,12 +138,14 @@ class DeviceConfigAPIView(_DeviceGitAPIView):
         except GitBackendError as exc:
             return Response({'detail': str(exc)}, status=404)
 
-        return Response({
-            'device_id': pk,
-            'filename': filename,
-            'commit_sha': sha,
-            'content': content,
-        })
+        return Response(
+            {
+                'device_id': pk,
+                'filename': filename,
+                'commit_sha': sha,
+                'content': content,
+            }
+        )
 
 
 class DeviceHistoryAPIView(_DeviceGitAPIView):
@@ -152,11 +156,13 @@ class DeviceHistoryAPIView(_DeviceGitAPIView):
         if not backend:
             return Response({'detail': 'No Oxidized mapping for this device.'}, status=404)
         commits = backend.list_commits(filename, limit=100)
-        return Response({
-            'device_id': pk,
-            'filename': filename,
-            'commits': [_commit_to_dict(c) for c in commits],
-        })
+        return Response(
+            {
+                'device_id': pk,
+                'filename': filename,
+                'commits': [_commit_to_dict(c) for c in commits],
+            }
+        )
 
 
 class DeviceDiffAPIView(_DeviceGitAPIView):
@@ -171,22 +177,24 @@ class DeviceDiffAPIView(_DeviceGitAPIView):
         except GitBackendError as exc:
             return Response({'detail': str(exc)}, status=404)
 
-        return Response({
-            'device_id': pk,
-            'filename': filename,
-            'old_sha': diff.old_sha,
-            'new_sha': diff.new_sha,
-            'hunks': [
-                {
-                    'old_start': h.old_start,
-                    'old_lines': h.old_lines,
-                    'new_start': h.new_start,
-                    'new_lines': h.new_lines,
-                    'lines': [{'marker': m, 'content': c} for m, c in h.lines],
-                }
-                for h in diff.hunks
-            ],
-        })
+        return Response(
+            {
+                'device_id': pk,
+                'filename': filename,
+                'old_sha': diff.old_sha,
+                'new_sha': diff.new_sha,
+                'hunks': [
+                    {
+                        'old_start': h.old_start,
+                        'old_lines': h.old_lines,
+                        'new_start': h.new_start,
+                        'new_lines': h.new_lines,
+                        'lines': [{'marker': m, 'content': c} for m, c in h.lines],
+                    }
+                    for h in diff.hunks
+                ],
+            }
+        )
 
 
 def _note_to_dict(note):
@@ -206,6 +214,7 @@ class DeviceCommitNoteAPIView(APIView):
            automation loop: make a change, resync, then annotate the new SHA.
     Notes live in NetBox, not git.
     """
+
     permission_classes = [IsAuthenticated]
 
     def _device(self, request, pk):
@@ -227,7 +236,10 @@ class DeviceCommitNoteAPIView(APIView):
         if not message:
             return Response({'detail': 'message is required.'}, status=400)
         note = ConfigCommitNote.objects.create(
-            device=device, commit_sha=sha, message=message, created_by=request.user,
+            device=device,
+            commit_sha=sha,
+            message=message,
+            created_by=request.user,
         )
         return Response(_note_to_dict(note), status=201)
 
@@ -235,6 +247,7 @@ class DeviceCommitNoteAPIView(APIView):
 class DeviceSyncAPIView(APIView):
     """POST — trigger an on-demand Oxidized backup for a device (needs the
     source's api_url). Read-only toward git."""
+
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
@@ -247,6 +260,7 @@ class DeviceSyncAPIView(APIView):
             return Response({'detail': "Could not resolve this device's node name."}, status=400)
 
         from ..services.oxidized_api import OxidizedAPIError, trigger_backup
+
         try:
             trigger_backup(source.api_url, node)
         except OxidizedAPIError as exc:
