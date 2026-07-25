@@ -15,7 +15,10 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('dcim', '0227_alter_interface_speed_bigint'),
+        # Pin to migrations present in the minimum supported NetBox (4.5.0) so the
+        # plugin installs on 4.5.0+. 0225 is the last dcim migration in 4.5.0;
+        # newer 4.5.x patches only add migrations after it, so this stays valid.
+        ('dcim', '0225_gfk_indexes'),
         ('extras', '0134_owner'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
