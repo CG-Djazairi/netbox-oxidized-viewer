@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-15
+
+### Fixed
+- Saving an Oxidized Source from the UI failed with `SerializerNotFound`: NetBox
+  serializes every change-logged object with its REST API serializer, and the
+  plugin shipped none for `OxidizedSource`. The serializer now exists.
+
+### Added
+- REST endpoint `/api/plugins/oxidized-viewer/sources/` (list/retrieve/create/
+  update/delete, standard NetBox model endpoint) backed by the new serializer.
+
 ## [0.1.1] - 2026-09-15
 
 ### Changed

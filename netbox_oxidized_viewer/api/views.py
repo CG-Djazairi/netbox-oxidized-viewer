@@ -1,11 +1,13 @@
 from dcim.models import Device
 from django.shortcuts import get_object_or_404
+from netbox.api.viewsets import NetBoxModelViewSet
 from netbox.plugins import get_plugin_config
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..models import ConfigCommitNote
+from .. import filters
+from ..models import ConfigCommitNote, OxidizedSource
 from ..services.git_backend import GitBackendError
 from ..utils import (
     get_backend_and_filename_for_device,
@@ -13,6 +15,15 @@ from ..utils import (
     resolve_device_field,
     scope_device_queryset,
 )
+from .serializers import OxidizedSourceSerializer
+
+
+class OxidizedSourceViewSet(NetBoxModelViewSet):
+    """CRUD for the Oxidized source (standard NetBox model endpoint)."""
+
+    queryset = OxidizedSource.objects.prefetch_related('scope_roles', 'scope_platforms', 'scope_tags', 'tags')
+    serializer_class = OxidizedSourceSerializer
+    filterset_class = filters.OxidizedSourceFilterSet
 
 
 def _commit_to_dict(commit):

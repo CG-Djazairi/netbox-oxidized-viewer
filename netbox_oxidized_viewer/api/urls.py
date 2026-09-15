@@ -1,8 +1,12 @@
 from django.urls import path
+from netbox.api.routers import NetBoxRouter
 
 from . import views
 
 app_name = 'netbox_oxidized_viewer'
+
+router = NetBoxRouter()
+router.register('sources', views.OxidizedSourceViewSet)
 
 urlpatterns = [
     path('source/', views.OxidizedInventoryView.as_view(), name='source-inventory'),
@@ -22,3 +26,5 @@ urlpatterns = [
     ),
     path('devices/<int:pk>/sync/', views.DeviceSyncAPIView.as_view(), name='device-sync'),
 ]
+
+urlpatterns += router.urls
