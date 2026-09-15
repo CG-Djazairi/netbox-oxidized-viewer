@@ -34,10 +34,10 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    # NetBox 4.5 requires Python >= 3.12.
+    # Oldest and newest supported NetBox. Both run on Python 3.12 (4.5 requires it).
     strategy:
       matrix:
-        netbox-version: ["v4.5.0"]
+        netbox-version: ["v4.3.1", "v4.5.0"]
     services:
       postgres:
         image: postgres:16

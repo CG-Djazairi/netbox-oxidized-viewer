@@ -20,7 +20,7 @@ Oxidized has no authentication. This plugin gates config access behind NetBox's 
 
 ## Requirements
 
-- NetBox ≥ 4.5.0 (which itself requires Python ≥ 3.12)
+- NetBox ≥ 4.3.0 (Python 3.10+; NetBox 4.5 itself requires Python ≥ 3.12)
 - PostgreSQL (required for the FTS index — the `django.contrib.postgres` app must be in `INSTALLED_APPS`, which NetBox sets by default)
 - The Oxidized bare git repository mounted read-only into the NetBox container, in a
   **flat** layout (one file per node at the top level — Oxidized's default; grouped

@@ -7,7 +7,7 @@ class OxidizedViewerConfig(PluginConfig):
     description = 'View Oxidized configuration backups with diff, history, and search'
     version = '0.1.0'
     base_url = 'oxidized-viewer'
-    min_version = '4.5.0'
+    min_version = '4.3.0'
 
     default_settings = {
         # Minutes between automatic re-indexing runs of the FTS snapshot table.

@@ -3,7 +3,6 @@
 import django.contrib.postgres.indexes
 import django.contrib.postgres.search
 import django.db.models.deletion
-import netbox.models.deletion
 import taggit.managers
 import utilities.json
 from django.conf import settings
@@ -15,11 +14,11 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        # Pin to migrations present in the minimum supported NetBox (4.5.0) so the
-        # plugin installs on 4.5.0+. 0225 is the last dcim migration in 4.5.0;
-        # newer 4.5.x patches only add migrations after it, so this stays valid.
-        ('dcim', '0225_gfk_indexes'),
-        ('extras', '0134_owner'),
+        # Pin to migrations present in the minimum supported NetBox (4.3.0) so the
+        # plugin installs on 4.3.0+. 0207 / 0128 are the last dcim / extras
+        # migrations in 4.3.x; later releases only add migrations after them.
+        ('dcim', '0207_remove_redundant_indexes'),
+        ('extras', '0128_tableconfig'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -45,7 +44,6 @@ class Migration(migrations.Migration):
                 'verbose_name_plural': 'Oxidized Sources',
                 'ordering': ('name',),
             },
-            bases=(netbox.models.deletion.DeleteMixin, models.Model),
         ),
         migrations.CreateModel(
             name='ConfigSnapshot',

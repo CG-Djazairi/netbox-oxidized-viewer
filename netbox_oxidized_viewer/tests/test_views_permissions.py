@@ -171,7 +171,7 @@ class TestSearchViewPermissions(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from django.contrib.contenttypes.models import ContentType
+        from core.models import ObjectType
         from users.models import ObjectPermission
 
         site = Site.objects.create(name='Site', slug='site')
@@ -199,7 +199,7 @@ class TestSearchViewPermissions(TestCase):
         perm = ObjectPermission.objects.create(
             name='view spine1 only', actions=['view'], constraints={'name': 'spine1'}
         )
-        perm.object_types.add(ContentType.objects.get_for_model(Device))
+        perm.object_types.add(ObjectType.objects.get_for_model(Device))
         perm.users.add(cls.constrained_user)
 
     def _results_for(self, user, query='interface'):
@@ -341,7 +341,7 @@ def _request_with_messages(method='post', user=None, data=None):
 class TestAddCommitNoteView(TestCase):
     @classmethod
     def setUpTestData(cls):
-        from django.contrib.contenttypes.models import ContentType
+        from core.models import ObjectType
         from users.models import ObjectPermission
 
         site = Site.objects.create(name='Site', slug='site')
@@ -356,7 +356,7 @@ class TestAddCommitNoteView(TestCase):
         # Device view but no add permission → reaches the perm check and is denied.
         cls.viewer = get_user_model().objects.create_user('note-ui-viewer')
         perm = ObjectPermission.objects.create(name='view dev', actions=['view'])
-        perm.object_types.add(ContentType.objects.get_for_model(Device))
+        perm.object_types.add(ObjectType.objects.get_for_model(Device))
         perm.users.add(cls.viewer)
 
     def test_superuser_adds_note_and_redirects(self):

@@ -44,6 +44,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   driver mapping. CI, ruff config, and a `dev` extra.
 
 ### Changed
+- Minimum supported NetBox lowered from 4.5.0 to **4.3.0** (`requires-python` >= 3.10 to
+  match). The initial migration now depends on the last dcim/extras migrations of 4.3
+  (`0207` / `0128`) and no longer references `netbox.models.deletion`, which only exists
+  from 4.5. Tested on 4.3.1 and 4.5.0.
 - `ConfigSnapshot.search_vector` is now a Postgres **STORED generated column**
   (`GeneratedField`, migration 0007) instead of being maintained by a `post_save`
   signal. The FTS index can no longer drift from content on write paths that bypass

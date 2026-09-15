@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- NetBox 4.5.0 or later running under Docker (or any deployment with PostgreSQL and Redis)
+- NetBox 4.3.0 or later, under Docker or a classic install (any deployment with PostgreSQL and Redis)
 - Oxidized running and writing to a bare git repository
 - The bare git repository accessible (as a read-only bind mount) from inside the NetBox container
 - A **flat** repository layout — one config file per node at the top level of the
