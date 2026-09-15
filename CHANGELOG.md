@@ -6,6 +6,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-15
+
+### Changed
+- Minimum supported NetBox lowered from 4.5.0 to **4.3.0** (`requires-python` >= 3.10 to
+  match). The initial migration now depends on the last dcim/extras migrations of 4.3
+  (`0207` / `0128`) and no longer references `netbox.models.deletion`, which only exists
+  from 4.5. Tested on 4.3.1 and 4.5.0.
+
+## [0.1.0] - 2026-07-25
+- Initial release: Config History tab, side-by-side diff viewer, Postgres FTS search,
+  raw config/diff downloads, and the Oxidized HTTP-source inventory endpoint.
+
 ### Added
 - **Zero-touch install** — set `git_repo_path` (and optionally `node_name_source` /
   `api_url`) in `PLUGINS_CONFIG` and the `OxidizedSource` is auto-created on
@@ -44,10 +56,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   driver mapping. CI, ruff config, and a `dev` extra.
 
 ### Changed
-- Minimum supported NetBox lowered from 4.5.0 to **4.3.0** (`requires-python` >= 3.10 to
-  match). The initial migration now depends on the last dcim/extras migrations of 4.3
-  (`0207` / `0128`) and no longer references `netbox.models.deletion`, which only exists
-  from 4.5. Tested on 4.3.1 and 4.5.0.
 - `ConfigSnapshot.search_vector` is now a Postgres **STORED generated column**
   (`GeneratedField`, migration 0007) instead of being maintained by a `post_save`
   signal. The FTS index can no longer drift from content on write paths that bypass
@@ -69,6 +77,3 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `test_git_backend.py` is now collected by the Django test runner (was pytest-only,
   silently skipped); the vacuous signal-loop test was replaced with a behavioral one.
 
-## [0.1.0]
-- Initial release: Config History tab, side-by-side diff viewer, Postgres FTS search,
-  raw config/diff downloads, and the Oxidized HTTP-source inventory endpoint.
