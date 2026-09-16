@@ -5,7 +5,7 @@ class OxidizedViewerConfig(PluginConfig):
     name = 'netbox_oxidized_viewer'
     verbose_name = 'Oxidized Config Viewer'
     description = 'View Oxidized configuration backups with diff, history, and search'
-    version = '0.1.2'
+    version = '0.1.3'
     base_url = 'oxidized-viewer'
     min_version = '4.3.0'
 
@@ -21,6 +21,11 @@ class OxidizedViewerConfig(PluginConfig):
         # When a device has a platform not in the map, its slug is exported as-is;
         # when it has no platform, the device_type model is used (legacy behaviour).
         'platform_model_map': {},
+        # Device attribute exported as the Oxidized "ip". Default: the primary
+        # IPv4. Any device attribute or a custom field prefixed with cf_ works,
+        # e.g. 'cf_management_interface' for an object custom field pointing at
+        # an IP address (the address is exported without its prefix length).
+        'inventory_ip_field': 'primary_ip4',
         # Optional device attribute exported as the Oxidized "group" (for
         # group-based credentials). e.g. 'site', 'tenant', 'role', or 'cf_<name>'.
         # None omits the group field entirely.

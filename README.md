@@ -15,7 +15,7 @@ Oxidized has no authentication. This plugin gates config access behind NetBox's 
 - **Backup scope** — limit which devices are Oxidized's responsibility by role, platform, or tag, so passive gear/servers/etc. are excluded from the exported node list *and* from the "never backed up" report.
 - **Backup health** — the dashboard flags stale backups and lists active, in-scope devices that have never been backed up (the silent-failure case), in a collapsible panel.
 - **REST API** — read a device's config, history, and diffs via NetBox tokens with the same object-level RBAC as the UI.
-- **Inventory endpoint** — `GET /api/plugins/oxidized-viewer/source/` returns the device list in Oxidized's HTTP source format (using the NetBox platform as the driver name), so Oxidized can pull its node list directly from NetBox.
+- **Inventory endpoint** — `GET /api/plugins/oxidized-viewer/source/` returns the device list in Oxidized's HTTP source format (NetBox platform as the driver name, primary IPv4 or any custom field as the address), so Oxidized can pull its node list directly from NetBox.
 - **Read-only toward git** — the plugin never writes to the Oxidized git repo. (Commit notes live in NetBox; the optional sync only asks Oxidized to poll.)
 
 ## Requirements

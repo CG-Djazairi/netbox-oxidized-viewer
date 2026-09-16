@@ -80,6 +80,7 @@ class OxidizedInventoryView(APIView):
 
         platform_map = get_plugin_config('netbox_oxidized_viewer', 'platform_model_map') or {}
         group_field = get_plugin_config('netbox_oxidized_viewer', 'inventory_group_field')
+        ip_field = get_plugin_config('netbox_oxidized_viewer', 'inventory_ip_field') or 'primary_ip4'
 
         # restrict() honours ObjectPermission constraints, so a token scoped to
         # a subset of devices only ever exports that subset. scope filters keep
@@ -100,7 +101,7 @@ class OxidizedInventoryView(APIView):
             entry = {
                 'name': name,
                 'model': _oxidized_model(device, platform_map),
-                'ip': str(device.primary_ip4.address.ip) if device.primary_ip4 else '',
+                'ip': resolve_device_field(device, ip_field) or '',
             }
             if group_field:
                 group = resolve_device_field(device, group_field)

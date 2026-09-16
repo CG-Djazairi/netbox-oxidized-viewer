@@ -199,6 +199,22 @@ source:
 
 The endpoint returns active devices in the format `[{"name": "...", "model": "...", "ip": "..."}]`.
 
+`ip` is the device's primary IPv4 by default. If your management addresses live
+elsewhere, point `inventory_ip_field` at any device attribute or custom field
+(`cf_<name>`); an object custom field referencing an IP address exports the bare
+address:
+
+```python
+PLUGINS_CONFIG = {
+    'netbox_oxidized_viewer': {
+        'inventory_ip_field': 'cf_management_interface',
+    },
+}
+```
+
+Devices whose field is empty are exported with `"ip": ""`, which makes Oxidized
+fall back to DNS for them.
+
 > **Permission required:** the token's user needs the `dcim.view_device`
 > permission (a NetBox object permission with the *view* action on
 > *DCIM → device*). The endpoint only exports devices that permission allows,

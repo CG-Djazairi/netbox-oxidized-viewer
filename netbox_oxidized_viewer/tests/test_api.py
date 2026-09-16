@@ -400,3 +400,58 @@ class TestDeviceSyncAPI(TestCase):
         resp = self._post()
         self.assertEqual(resp.status_code, 400)
         mock_trigger.assert_not_called()
+
+
+class TestInventoryIpField(TestCase):
+    """The `ip` exported by the inventory endpoint follows `inventory_ip_field`."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from core.models import ObjectType as _ObjectType
+        from extras.models import CustomField
+        from ipam.models import IPAddress
+
+        cls.user = get_user_model().objects.create_user('tester', password='x')
+        _grant_device_view(cls.user)
+        site = Site.objects.create(name='Site', slug='site')
+        manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
+        role = DeviceRole.objects.create(name='Router', slug='router')
+        OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo')
+
+        cf = CustomField.objects.create(
+            name='management_interface',
+            type='object',
+            related_object_type=_ObjectType.objects.get_for_model(IPAddress),
+        )
+        cf.object_types.set([_ObjectType.objects.get_for_model(Device)])
+        mgmt_ip = IPAddress.objects.create(address='192.0.2.10/24')
+        primary_ip = IPAddress.objects.create(address='198.51.100.1/32')
+        cls.device = Device.objects.create(
+            name='spine1',
+            site=site,
+            device_type=device_type,
+            role=role,
+            status='active',
+            custom_field_data={'management_interface': mgmt_ip.pk},
+        )
+        cls.device.primary_ip4 = primary_ip
+        cls.device.save()
+        Device.objects.create(name='leaf1', site=site, device_type=device_type, role=role, status='active')
+
+    def _get(self):
+        request = APIRequestFactory().get('/api/plugins/oxidized-viewer/source/')
+        force_authenticate(request, user=self.user)
+        return {e['name']: e for e in OxidizedInventoryView.as_view()(request).data}
+
+    @override_settings(PLUGINS_CONFIG={'netbox_oxidized_viewer': {'inventory_ip_field': 'primary_ip4'}})
+    def test_default_is_primary_ipv4(self):
+        entries = self._get()
+        self.assertEqual(entries['spine1']['ip'], '198.51.100.1')
+        self.assertEqual(entries['leaf1']['ip'], '')
+
+    @override_settings(PLUGINS_CONFIG={'netbox_oxidized_viewer': {'inventory_ip_field': 'cf_management_interface'}})
+    def test_object_custom_field_exports_bare_address(self):
+        entries = self._get()
+        self.assertEqual(entries['spine1']['ip'], '192.0.2.10')
+        self.assertEqual(entries['leaf1']['ip'], '')

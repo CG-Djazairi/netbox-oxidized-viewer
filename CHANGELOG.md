@@ -6,6 +6,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-16
+
+### Added
+- `inventory_ip_field` plugin setting: which device attribute the inventory
+  endpoint exports as the Oxidized `ip` (default `primary_ip4`). Accepts any
+  device attribute or a `cf_<name>` custom field; an object custom field that
+  references an IP address exports the bare address.
+
+### Changed
+- `cf_<name>` expressions (node name, group, ip) now resolve through NetBox's
+  custom-field deserializer, so object custom fields yield the object instead
+  of its raw primary key.
+
 ## [0.1.2] - 2026-09-15
 
 ### Fixed

@@ -19,7 +19,8 @@ def resolve_device_field(device, field_expr: str):
 
     Supported forms:
       name, serial, asset_tag, primary_ip4, primary_ip6, ... (any device attr)
-      cf_<name>  →  device.custom_field_data['<name>']
+      cf_<name>  →  the custom field value; an object custom field pointing at an
+                    IP address resolves to the bare address (no prefix length)
 
     Returns a string or None if the field is missing/empty.
     """
@@ -28,10 +29,19 @@ def resolve_device_field(device, field_expr: str):
 
     if field_expr.startswith('cf_'):
         cf_name = field_expr[3:]
-        value = device.custom_field_data.get(cf_name)
-        return str(value) if value is not None else None
-
-    value = getattr(device, field_expr, None)
+        # device.cf deserializes object-type custom fields into model instances
+        # (e.g. an IPAddress); custom_field_data only holds the raw pk. Fall back
+        # to the raw value when no CustomField definition exists for the name.
+        try:
+            deserialized = device.cf
+        except Exception:
+            deserialized = {}
+        if cf_name in deserialized:
+            value = deserialized[cf_name]
+        else:
+            value = device.custom_field_data.get(cf_name)
+    else:
+        value = getattr(device, field_expr, None)
 
     # IP address proxy objects expose .address.ip
     if value is not None and hasattr(value, 'address'):
