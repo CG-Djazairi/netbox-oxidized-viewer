@@ -30,7 +30,7 @@ class OxidizedSourceForm(NetBoxModelForm):
     )
 
     fieldsets = (
-        FieldSet('name', 'git_repo_path', 'node_name_source', 'api_url', name='Source'),
+        FieldSet('name', 'git_repo_path', 'node_name_source', 'inventory_ip_field', 'api_url', name='Source'),
         FieldSet('scope_roles', 'scope_platforms', 'scope_tags', name='Backup scope'),
         FieldSet('tags', name='Tags'),
     )
@@ -41,12 +41,17 @@ class OxidizedSourceForm(NetBoxModelForm):
             'name',
             'git_repo_path',
             'node_name_source',
+            'inventory_ip_field',
             'api_url',
             'scope_roles',
             'scope_platforms',
             'scope_tags',
             'tags',
         )
+
+    def clean_inventory_ip_field(self):
+        # Blank means the default; store the default so the page never shows an empty mapping.
+        return (self.cleaned_data.get('inventory_ip_field') or '').strip() or 'primary_ip4'
 
     def clean_git_repo_path(self):
         """Fail fast at save time if the path is not a readable git repository.

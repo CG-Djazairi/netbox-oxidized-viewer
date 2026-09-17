@@ -42,6 +42,7 @@ def update_config_snapshots(source_pk=None):
         }
 
         updated = skipped = errors = 0
+        kept_device_ids = []  # devices that still have a file in the repo
 
         # Only index devices in this source's scope (roles/platforms/tags).
         scoped_devices = scope_device_queryset(source, Device.objects.all())
@@ -53,6 +54,7 @@ def update_config_snapshots(source_pk=None):
             latest = latest_by_file.get(filename)
             if not latest:
                 continue
+            kept_device_ids.append(device.id)
 
             prev = existing.get(device.id)
             # commit_timestamp check backfills rows indexed before the commit
@@ -85,10 +87,15 @@ def update_config_snapshots(source_pk=None):
             )
             updated += 1
 
+        # A device whose file disappeared from the repo (or that left the scope)
+        # must not keep showing a healthy backup: drop its snapshot.
+        removed, _ = ConfigSnapshot.objects.filter(source=source).exclude(device_id__in=kept_device_ids).delete()
+
         logger.info(
-            "Source '%s': %d updated, %d skipped (unchanged), %d errors.",
+            "Source '%s': %d updated, %d skipped (unchanged), %d removed (no file), %d errors.",
             source.name,
             updated,
             skipped,
+            removed,
             errors,
         )

@@ -9,5 +9,5 @@ class OxidizedSourceTable(NetBoxTable):
 
     class Meta(NetBoxTable.Meta):
         model = OxidizedSource
-        fields = ('pk', 'id', 'name', 'git_repo_path', 'node_name_source', 'actions')
+        fields = ('pk', 'id', 'name', 'git_repo_path', 'node_name_source', 'inventory_ip_field', 'actions')
         default_columns = ('name', 'git_repo_path', 'node_name_source')

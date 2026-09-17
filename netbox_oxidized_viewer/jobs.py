@@ -26,4 +26,6 @@ class ConfigSnapshotIndexJob(JobRunner):
         name = 'Update Oxidized config snapshots'
 
     def run(self, *args, **kwargs):
-        update_config_snapshots()
+        # 'Reindex now' attaches the job to a source; the scheduled run has none.
+        source = self.job.object
+        update_config_snapshots(source_pk=source.pk if source else None)

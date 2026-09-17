@@ -18,6 +18,7 @@ class TestProvisionFromSettings(TestCase):
                 'git_repo_path': '/opt/oxidized-git',
                 'source_name': 'auto',
                 'node_name_source': 'serial',
+                'inventory_ip_field': 'cf_management_interface',
                 'api_url': 'http://oxidized:8888',
             }
         }
@@ -29,6 +30,7 @@ class TestProvisionFromSettings(TestCase):
         self.assertEqual(s.name, 'auto')
         self.assertEqual(s.git_repo_path, '/opt/oxidized-git')
         self.assertEqual(s.node_name_source, 'serial')
+        self.assertEqual(s.inventory_ip_field, 'cf_management_interface')
         self.assertEqual(s.api_url, 'http://oxidized:8888')
 
     @override_settings(PLUGINS_CONFIG={'netbox_oxidized_viewer': {'git_repo_path': '/opt/oxidized-git'}})

@@ -1,7 +1,9 @@
-from django.urls import path
-from netbox.views.generic import ObjectChangeLogView
+from django.urls import include, path
+from utilities.urls import get_model_urls
 
-from . import models, views
+from . import converters, views
+
+converters.register()
 
 urlpatterns = [
     # Dashboard & Search
@@ -14,31 +16,28 @@ urlpatterns = [
     path('sources/<int:pk>/edit/', views.OxidizedSourceEditView.as_view(), name='oxidizedsource_edit'),
     path('sources/<int:pk>/delete/', views.OxidizedSourceDeleteView.as_view(), name='oxidizedsource_delete'),
     path('sources/<int:pk>/reindex/', views.SourceReindexView.as_view(), name='oxidizedsource_reindex'),
-    path(
-        'sources/<int:pk>/changelog/',
-        ObjectChangeLogView.as_view(),
-        name='oxidizedsource_changelog',
-        kwargs={'model': models.OxidizedSource},
-    ),
+    # Views NetBox registers for the model's features (changelog, jobs) and any
+    # @register_model_view(OxidizedSource, ...) of our own.
+    path('sources/<int:pk>/', include(get_model_urls('netbox_oxidized_viewer', 'oxidizedsource'))),
     # Device config tab (registered via @register_model_view on /dcim/devices/<pk>/config/)
     path('devices/<int:pk>/config/', views.DeviceConfigView.as_view(), name='device_oxidized_config'),
     # Diff views
-    path('devices/<int:pk>/commit/<str:sha_new>/', views.ConfigDiffView.as_view(), name='device_commit'),
-    path('devices/<int:pk>/diff/<str:sha_old>/<str:sha_new>/', views.ConfigDiffView.as_view(), name='device_diff'),
+    path('devices/<int:pk>/commit/<sha:sha_new>/', views.ConfigDiffView.as_view(), name='device_commit'),
+    path('devices/<int:pk>/diff/<sha:sha_old>/<sha:sha_new>/', views.ConfigDiffView.as_view(), name='device_diff'),
     # Commit picker redirect
     path('devices/<int:pk>/compare/', views.ConfigCompareRedirectView.as_view(), name='device_compare'),
     # Commit notes (stored in NetBox, not git) + on-demand Oxidized sync
-    path('devices/<int:pk>/commit/<str:sha>/note/', views.AddCommitNoteView.as_view(), name='device_add_note'),
+    path('devices/<int:pk>/commit/<sha:sha>/note/', views.AddCommitNoteView.as_view(), name='device_add_note'),
     path('devices/<int:pk>/sync/', views.DeviceSyncView.as_view(), name='device_sync'),
     # Downloads
     path('devices/<int:pk>/config/download/', views.DeviceConfigDownloadView.as_view(), name='device_config_download'),
     path(
-        'devices/<int:pk>/commit/<str:sha>/download/',
+        'devices/<int:pk>/commit/<sha:sha>/download/',
         views.CommitConfigDownloadView.as_view(),
         name='device_commit_download',
     ),
     path(
-        'devices/<int:pk>/diff/<str:sha_old>/<str:sha_new>/download/',
+        'devices/<int:pk>/diff/<sha:sha_old>/<sha:sha_new>/download/',
         views.DiffDownloadView.as_view(),
         name='device_diff_download',
     ),

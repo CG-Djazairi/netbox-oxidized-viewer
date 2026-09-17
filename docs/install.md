@@ -55,11 +55,11 @@ Replace `/path/to/oxidized/git-output` with the actual path on your host where O
 
 ### Production: when Oxidized and NetBox run on different hosts
 
-The plugin needs **file-level access to the git repository** — not Oxidized's REST API. The
-REST API can only return the *current* config; it cannot provide commit history, diffs, or let
-Postgres index historical commits for full-text search. The whole point of the plugin (the
-Config History timeline, the diff viewer, and the search index) depends on reading the raw git
-objects, so a local repo path is a hard requirement.
+The plugin reads the **git repository** directly (with Dulwich), not Oxidized's REST API.
+oxidized-web does expose the current config, the version list and diffs per node, but
+it has no authentication and no usable fleet-wide search, and the plugin's history
+timeline, diff viewer and Postgres search index are all built from the raw git objects.
+So a local repo path is required today; an API transport is a possible future option.
 
 In the lab this is just a bind mount. In production, where Oxidized and NetBox are usually
 separate servers, get the repo onto the NetBox host with either:
@@ -199,18 +199,15 @@ source:
 
 The endpoint returns active devices in the format `[{"name": "...", "model": "...", "ip": "..."}]`.
 
-`ip` is the device's primary IPv4 by default. If your management addresses live
-elsewhere, point `inventory_ip_field` at any device attribute or custom field
-(`cf_<name>`); an object custom field referencing an IP address exports the bare
-address:
+The canonical path is `/api/plugins/oxidized-viewer/inventory/`; `source/` is an alias
+kept for existing Oxidized configurations. Both, and the per-device endpoints, are listed
+at the plugin's API root.
 
-```python
-PLUGINS_CONFIG = {
-    'netbox_oxidized_viewer': {
-        'inventory_ip_field': 'cf_management_interface',
-    },
-}
-```
+`ip` is the device's primary IPv4 by default. If your management addresses live
+elsewhere, set **Inventory IP field** on the source (Oxidized → Sources → edit) to any
+device attribute or custom field (`cf_<name>`); an object custom field referencing an IP
+address exports the bare address. The `inventory_ip_field` key in `PLUGINS_CONFIG` only
+seeds that value when the source is auto-created.
 
 Devices whose field is empty are exported with `"ip": ""`, which makes Oxidized
 fall back to DNS for them.
@@ -245,7 +242,8 @@ curl -s -X POST -H "Authorization: Token $TOKEN" -H "Content-Type: application/j
 ```
 
 Adding notes requires the `netbox_oxidized_viewer.add_configcommitnote` permission
-(plus view permission on the device).
+(plus view permission on the device). Triggering a sync requires the **change**
+permission on the device, since it makes Oxidized act.
 
 To enable the **Sync now** button / `sync/` endpoint, set the source's **API URL**
 to your Oxidized web endpoint (e.g. `http://oxidized:8888`). The plugin calls

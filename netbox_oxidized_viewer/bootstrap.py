@@ -37,6 +37,7 @@ def provision_source_from_settings():
         name=get_plugin_config(PLUGIN, 'source_name') or 'default',
         git_repo_path=repo_path,
         node_name_source=get_plugin_config(PLUGIN, 'node_name_source') or 'name',
+        inventory_ip_field=get_plugin_config(PLUGIN, 'inventory_ip_field') or 'primary_ip4',
         api_url=get_plugin_config(PLUGIN, 'api_url') or '',
     )
     logger.info(

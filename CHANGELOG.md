@@ -6,6 +6,37 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-17
+
+### Fixed
+- **Reindex now** on the source page failed with "Jobs cannot be assigned to this
+  object type": `OxidizedSource` now carries NetBox's jobs feature, the job is
+  attached to the source (new *Jobs* tab on the source page) and indexes that
+  source.
+- Snapshots of devices whose file disappeared from the repository (or that left
+  the backup scope) are removed on the next index run instead of showing a
+  healthy backup forever.
+- Malformed commit SHAs in URLs now 404 at routing instead of reaching git or the
+  database.
+- The on-demand sync client no longer follows redirects and only accepts http(s)
+  API URLs.
+
+### Added
+- **Inventory IP field** on the source (form, page, REST) — which device
+  attribute the inventory exports as `ip`. Migration 0002 copies the previous
+  `PLUGINS_CONFIG` value onto existing sources; the setting now only seeds an
+  auto-created source.
+- `/api/plugins/oxidized-viewer/inventory/` as the canonical inventory path
+  (`source/` kept as an alias), and an API root that lists every plugin endpoint.
+
+### Changed
+- Triggering a sync (UI button and API) requires the **change** permission on the
+  device instead of view only.
+- Config bodies and diffs are cached for 5 minutes instead of 24 hours; they are
+  plaintext configuration living in a shared Redis.
+- Documentation no longer claims that Oxidized's REST API cannot serve history
+  and diffs; the git requirement is explained by search and authentication instead.
+
 ## [0.1.4] - 2026-09-17
 
 ### Added

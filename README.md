@@ -15,7 +15,7 @@ Oxidized has no authentication. This plugin gates config access behind NetBox's 
 - **Backup scope** — limit which devices are Oxidized's responsibility by role, platform, or tag, so passive gear/servers/etc. are excluded from the exported node list *and* from the "never backed up" report.
 - **Backup health** — the dashboard flags stale backups and lists active, in-scope devices that have never been backed up (the silent-failure case), in a collapsible panel.
 - **REST API** — read a device's config, history, and diffs via NetBox tokens with the same object-level RBAC as the UI.
-- **Inventory endpoint** — `GET /api/plugins/oxidized-viewer/source/` returns the device list in Oxidized's HTTP source format (NetBox platform as the driver name, primary IPv4 or any custom field as the address), so Oxidized can pull its node list directly from NetBox.
+- **Inventory endpoint** — `GET /api/plugins/oxidized-viewer/inventory/` returns the device list in Oxidized's HTTP source format (NetBox platform as the driver name, primary IPv4 or any custom field as the address), so Oxidized can pull its node list directly from NetBox.
 - **Read-only toward git** — the plugin never writes to the Oxidized git repo. (Commit notes live in NetBox; the optional sync only asks Oxidized to poll.)
 
 ## Requirements
@@ -78,7 +78,7 @@ authoritative once a source exists.
 
 Config content is indexed into PostgreSQL (`ConfigSnapshot`) by a NetBox system background job (run via RQ) on a configurable interval. The live git repo is only read on device config/diff/download views — never on search.
 
-The plugin reads the git repository directly (via Dulwich) rather than Oxidized's REST API, because the API cannot provide commit history, diffs, or a searchable index of past commits. When NetBox and Oxidized run on separate hosts, sync the repo to the NetBox host with a GitOps pull or a network file share — see [docs/install.md](docs/install.md#production-when-oxidized-and-netbox-run-on-different-hosts).
+The plugin reads the git repository directly (via Dulwich) rather than Oxidized's REST API: the API has no authentication and no usable fleet-wide search, and the history, diffs and Postgres search index are all built from the raw git objects. When NetBox and Oxidized run on separate hosts, sync the repo to the NetBox host with a GitOps pull or a network file share — see [docs/install.md](docs/install.md#production-when-oxidized-and-netbox-run-on-different-hosts).
 
 ## License
 

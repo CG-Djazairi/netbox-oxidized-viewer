@@ -401,9 +401,29 @@ class TestDeviceSyncAPI(TestCase):
         self.assertEqual(resp.status_code, 400)
         mock_trigger.assert_not_called()
 
+    @mock.patch('netbox_oxidized_viewer.services.oxidized_api.trigger_backup')
+    def test_sync_requires_change_permission(self, mock_trigger):
+        # Triggering a backup is a write on Oxidized: device *view* is not enough.
+        OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo', api_url='http://oxi:8888')
+        viewer = get_user_model().objects.create_user('sync-viewer')
+        _grant_device_view(viewer)
+        request = APIRequestFactory().post('/')
+        force_authenticate(request, user=viewer)
+        resp = DeviceSyncAPIView.as_view()(request, pk=self.device.pk)
+        self.assertEqual(resp.status_code, 404)
+        mock_trigger.assert_not_called()
+
+        changer = get_user_model().objects.create_user('sync-changer')
+        _grant(changer, Device, ['view', 'change'])
+        request = APIRequestFactory().post('/')
+        force_authenticate(request, user=changer)
+        resp = DeviceSyncAPIView.as_view()(request, pk=self.device.pk)
+        self.assertEqual(resp.status_code, 200)
+        mock_trigger.assert_called_once()
+
 
 class TestInventoryIpField(TestCase):
-    """The `ip` exported by the inventory endpoint follows `inventory_ip_field`."""
+    """The `ip` exported by the inventory endpoint follows the source's inventory_ip_field."""
 
     @classmethod
     def setUpTestData(cls):
@@ -444,14 +464,13 @@ class TestInventoryIpField(TestCase):
         force_authenticate(request, user=self.user)
         return {e['name']: e for e in OxidizedInventoryView.as_view()(request).data}
 
-    @override_settings(PLUGINS_CONFIG={'netbox_oxidized_viewer': {'inventory_ip_field': 'primary_ip4'}})
     def test_default_is_primary_ipv4(self):
         entries = self._get()
         self.assertEqual(entries['spine1']['ip'], '198.51.100.1')
         self.assertEqual(entries['leaf1']['ip'], '')
 
-    @override_settings(PLUGINS_CONFIG={'netbox_oxidized_viewer': {'inventory_ip_field': 'cf_management_interface'}})
     def test_object_custom_field_exports_bare_address(self):
+        OxidizedSource.objects.update(inventory_ip_field='cf_management_interface')
         entries = self._get()
         self.assertEqual(entries['spine1']['ip'], '192.0.2.10')
         self.assertEqual(entries['leaf1']['ip'], '')

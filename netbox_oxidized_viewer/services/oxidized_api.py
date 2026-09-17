@@ -27,9 +27,13 @@ def trigger_backup(api_url: str, node: str, timeout: int = 10) -> str:
     if not api_url:
         raise OxidizedAPIError('No Oxidized API URL is configured on the source.')
 
+    if not api_url.lower().startswith(('http://', 'https://')):
+        raise OxidizedAPIError('The Oxidized API URL must start with http:// or https://.')
+
     url = f'{api_url.rstrip("/")}/node/next/{quote(node, safe="")}'
     try:
-        resp = requests.get(url, timeout=timeout)
+        # No redirects: NetBox must only ever talk to the configured host.
+        resp = requests.get(url, timeout=timeout, allow_redirects=False)
         resp.raise_for_status()
     except requests.RequestException as exc:
         raise OxidizedAPIError(f'Oxidized API request failed: {exc}') from exc

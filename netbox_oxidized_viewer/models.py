@@ -7,9 +7,12 @@ from django.db.models import GeneratedField, Value
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from netbox.models import NetBoxModel
+from netbox.models.features import JobsMixin
 
 
-class OxidizedSource(NetBoxModel):
+class OxidizedSource(JobsMixin, NetBoxModel):
+    # JobsMixin: NetBox only lets a Job be attached to object types with the
+    # 'jobs' feature; the 'Reindex now' job is attached to the source.
     name = models.CharField(max_length=100, unique=True, help_text=_('A unique name for this Oxidized source'))
     git_repo_path = models.CharField(
         max_length=255,
@@ -33,6 +36,18 @@ class OxidizedSource(NetBoxModel):
             'only to trigger on-demand backups from NetBox. The plugin still reads '
             "history from git — this never replaces the git repo. Oxidized's API is "
             'unauthenticated, so restrict network access to it.'
+        ),
+    )
+    inventory_ip_field = models.CharField(
+        max_length=100,
+        blank=True,
+        default='primary_ip4',
+        verbose_name=_('Inventory IP field'),
+        help_text=_(
+            'Device field exported as the Oxidized "ip" by the inventory endpoint: any device '
+            'attribute (default primary_ip4) or a custom field prefixed with cf_ '
+            '(e.g. cf_management_interface). An object custom field pointing at an IP address '
+            'exports the bare address.'
         ),
     )
     # Scope: which devices are in Oxidized's remit. A device is in scope when it

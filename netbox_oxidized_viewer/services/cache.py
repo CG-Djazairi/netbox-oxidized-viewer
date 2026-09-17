@@ -9,6 +9,10 @@ from .git_backend import CommitMeta, FileDiff, GitBackend
 # cached and would re-walk the full repo history on every request.
 _MISS = object()
 
+# Config bodies and diffs are plaintext device configuration; they must not
+# linger in a shared Redis. Metadata is cheap to recompute too.
+BODY_TTL = 300
+
 
 class CachedGitBackend:
     """
@@ -44,21 +48,21 @@ class CachedGitBackend:
         return result
 
     def get_file_content(self, filename: str, sha: str) -> str:
-        # File content at a specific SHA is immutable — cache for 24 hours.
+        # Immutable per SHA, but this is plaintext config in Redis: keep it short.
         key = self._cache_key('file_content', self.backend.repo_path, filename, sha)
         cached = cache.get(key, _MISS)
         if cached is not _MISS:
             return cached
         result = self.backend.get_file_content(filename, sha)
-        cache.set(key, result, timeout=86400)
+        cache.set(key, result, timeout=BODY_TTL)
         return result
 
     def get_diff(self, filename: str, sha_old: str, sha_new: str) -> FileDiff:
-        # Diff between two immutable SHAs is itself immutable — cache for 24 hours.
+        # Immutable per SHA pair, but it carries config text: keep it short.
         key = self._cache_key('file_diff', self.backend.repo_path, filename, sha_old, sha_new)
         cached = cache.get(key, _MISS)
         if cached is not _MISS:
             return cached
         result = self.backend.get_diff(filename, sha_old, sha_new)
-        cache.set(key, result, timeout=86400)
+        cache.set(key, result, timeout=BODY_TTL)
         return result

@@ -4,6 +4,8 @@ from netbox.api.viewsets import NetBoxModelViewSet
 from netbox.plugins import get_plugin_config
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.reverse import reverse
+from rest_framework.routers import APIRootView
 from rest_framework.views import APIView
 
 from .. import filters
@@ -16,6 +18,29 @@ from ..utils import (
     scope_device_queryset,
 )
 from .serializers import OxidizedSourceSerializer
+
+
+class OxidizedAPIRootView(APIRootView):
+    """API root listing every endpoint of the plugin. DRF's default only lists the
+    router-registered model endpoint (sources/), hiding the inventory and the
+    per-device endpoints."""
+
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        namespace = request.resolver_match.namespace
+        root = request.build_absolute_uri(request.path)
+        response.data.update(
+            {
+                'inventory': reverse(f'{namespace}:inventory', request=request),
+                'source': reverse(f'{namespace}:source-inventory', request=request),
+                'devices/{pk}/config': f'{root}devices/{{pk}}/config/',
+                'devices/{pk}/history': f'{root}devices/{{pk}}/history/',
+                'devices/{pk}/diff/{sha_old}/{sha_new}': f'{root}devices/{{pk}}/diff/{{sha_old}}/{{sha_new}}/',
+                'devices/{pk}/commits/{sha}/note': f'{root}devices/{{pk}}/commits/{{sha}}/note/',
+                'devices/{pk}/sync': f'{root}devices/{{pk}}/sync/',
+            }
+        )
+        return response
 
 
 class OxidizedSourceViewSet(NetBoxModelViewSet):
@@ -80,7 +105,7 @@ class OxidizedInventoryView(APIView):
 
         platform_map = get_plugin_config('netbox_oxidized_viewer', 'platform_model_map') or {}
         group_field = get_plugin_config('netbox_oxidized_viewer', 'inventory_group_field')
-        ip_field = get_plugin_config('netbox_oxidized_viewer', 'inventory_ip_field') or 'primary_ip4'
+        ip_field = source.inventory_ip_field or 'primary_ip4'
 
         # restrict() honours ObjectPermission constraints, so a token scoped to
         # a subset of devices only ever exports that subset. scope filters keep
@@ -263,7 +288,9 @@ class DeviceSyncAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
-        device = get_object_or_404(Device.objects.restrict(request.user, 'view'), pk=pk)
+        # Triggering a backup is a write on an external system: require the
+        # change permission on the device, not merely view.
+        device = get_object_or_404(Device.objects.restrict(request.user, 'change'), pk=pk)
         source = get_source()
         if not source or not source.api_url:
             return Response({'detail': 'No Oxidized API URL is configured on the source.'}, status=400)

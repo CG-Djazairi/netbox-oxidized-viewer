@@ -91,6 +91,16 @@ class TestOxidizedTrigger(SimpleTestCase):
         mock_get.return_value = resp
         self.assertEqual(trigger_backup('http://oxi:8888/', 'sw1'), 'queued')
         self.assertEqual(mock_get.call_args[0][0], 'http://oxi:8888/node/next/sw1')
+        # Never follow redirects: NetBox must only talk to the configured host.
+        self.assertIs(mock_get.call_args[1]['allow_redirects'], False)
+
+    @mock.patch('netbox_oxidized_viewer.services.oxidized_api.requests.get')
+    def test_non_http_scheme_rejected(self, mock_get):
+        for url in ('ftp://oxi:8888', 'file:///etc/passwd', 'oxi:8888'):
+            with self.subTest(url=url):
+                with self.assertRaises(OxidizedAPIError):
+                    trigger_backup(url, 'sw1')
+        mock_get.assert_not_called()
 
     @mock.patch('netbox_oxidized_viewer.services.oxidized_api.requests.get')
     def test_connection_error_wrapped(self, mock_get):

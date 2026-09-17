@@ -265,7 +265,10 @@ class DeviceConfigView(generic.ObjectView):
             'commits': commits,
             'error_message': error_message,
             'note_counts': note_counts,
-            'sync_enabled': bool(source and source.api_url),
+            # 'Sync now' asks Oxidized to poll the device: a write on an external
+            # system, so it needs the change permission on the device.
+            'sync_enabled': bool(source and source.api_url)
+            and Device.objects.restrict(request.user, 'change').filter(pk=instance.pk).exists(),
         }
 
 
@@ -544,7 +547,7 @@ class DeviceSyncView(LoginRequiredMixin, View):
     source's api_url). Read-only toward git — it just asks Oxidized to poll."""
 
     def post(self, request, pk):
-        device = get_object_or_404(Device.objects.restrict(request.user, 'view'), pk=pk)
+        device = get_object_or_404(Device.objects.restrict(request.user, 'change'), pk=pk)
         source = get_source()
         if not source or not source.api_url:
             messages.error(request, 'No Oxidized API URL is configured on the source.')

@@ -95,6 +95,17 @@ class TestUpdateConfigSnapshots(TestCase):
         self.assertIsNotNone(snap.commit_timestamp)
         self.assertEqual(snap.commit_subject, 'backup')
 
+    def test_snapshot_removed_when_file_disappears(self):
+        # A device that Oxidized stopped backing up (file gone from HEAD) must
+        # not keep a "healthy" snapshot forever — that is exactly what the
+        # dashboard is supposed to surface.
+        update_config_snapshots(source_pk=self.source.pk)
+        self.assertTrue(ConfigSnapshot.objects.filter(device=self.leaf).exists())
+        _build_repo(self.repo_path, {'spine1': 'set / interface ethernet-1/1 admin-state enable\n'}, parent=self.sha1)
+        update_config_snapshots(source_pk=self.source.pk)
+        self.assertFalse(ConfigSnapshot.objects.filter(device=self.leaf).exists())
+        self.assertTrue(ConfigSnapshot.objects.filter(device=self.spine).exists())
+
     def test_orphan_device_not_indexed(self):
         update_config_snapshots(source_pk=self.source.pk)
         self.assertFalse(ConfigSnapshot.objects.filter(device=self.orphan).exists())

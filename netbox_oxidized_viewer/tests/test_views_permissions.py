@@ -401,3 +401,19 @@ class TestDeviceSyncView(TestCase):
         response = DeviceSyncView.as_view()(request, pk=self.device.pk)
         self.assertEqual(response.status_code, 302)
         mock_trigger.assert_not_called()
+
+    @mock.patch('netbox_oxidized_viewer.services.oxidized_api.trigger_backup')
+    def test_sync_denied_to_device_viewer(self, mock_trigger):
+        from core.models import ObjectType
+        from django.http import Http404
+        from users.models import ObjectPermission
+
+        OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo', api_url='http://oxi:8888')
+        viewer = get_user_model().objects.create_user('sync-ui-viewer')
+        perm = ObjectPermission.objects.create(name='view dev only', actions=['view'])
+        perm.object_types.add(ObjectType.objects.get_for_model(Device))
+        perm.users.add(viewer)
+        request = _request_with_messages(user=viewer)
+        with self.assertRaises(Http404):
+            DeviceSyncView.as_view()(request, pk=self.device.pk)
+        mock_trigger.assert_not_called()

@@ -10,8 +10,9 @@ through the test client (middleware included) so the pipeline actually runs.
 
 import shutil
 import tempfile
+from unittest import mock
 
-from core.models import ObjectChange
+from core.models import Job, ObjectChange
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
@@ -70,3 +71,75 @@ class TestOxidizedSourceSave(TestCase):
         )
         self.assertEqual(response.status_code, 302, response.content[:2000])
         self.assertEqual(response['Location'], source.get_absolute_url())
+
+    def test_ip_field_editable_and_shown(self):
+        source = OxidizedSource.objects.create(name='Lab', git_repo_path=self.repo)
+        response = self._post(
+            f'/plugins/oxidized-viewer/sources/{source.pk}/edit/', inventory_ip_field='cf_management_interface'
+        )
+        self.assertEqual(response.status_code, 302, response.content[:2000])
+        source.refresh_from_db()
+        self.assertEqual(source.inventory_ip_field, 'cf_management_interface')
+        page = self.client.get(source.get_absolute_url()).content.decode()
+        self.assertIn('cf_management_interface', page)
+        api = self.client.get(f'/api/plugins/oxidized-viewer/sources/{source.pk}/', HTTP_ACCEPT='application/json')
+        self.assertEqual(api.json()['inventory_ip_field'], 'cf_management_interface')
+
+    @mock.patch('django_rq.get_queue')
+    def test_reindex_button_enqueues_job_attached_to_source(self, mock_get_queue):
+        # Regression: OxidizedSource lacked the 'jobs' feature, so Job.clean()
+        # rejected the attachment and the button 500ed.
+        source = OxidizedSource.objects.create(name='Lab', git_repo_path=self.repo)
+        response = self.client.post(f'/plugins/oxidized-viewer/sources/{source.pk}/reindex/')
+        self.assertEqual(response.status_code, 302, response.content[:2000])
+        job = Job.objects.get(object_id=source.pk, name='Update Oxidized config snapshots')
+        self.assertEqual(job.object, source)
+        mock_get_queue.assert_called()  # handed to RQ (the exact queue call is NetBox's business)
+
+    def test_source_page_has_jobs_tab(self):
+        source = OxidizedSource.objects.create(name='Lab', git_repo_path=self.repo)
+        response = self.client.get(f'/plugins/oxidized-viewer/sources/{source.pk}/jobs/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_api_root_lists_every_endpoint(self):
+        response = self.client.get('/api/plugins/oxidized-viewer/', HTTP_ACCEPT='application/json')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        for key in (
+            'sources',
+            'inventory',
+            'source',
+            'devices/{pk}/config',
+            'devices/{pk}/history',
+            'devices/{pk}/sync',
+        ):
+            self.assertIn(key, body)
+        self.assertTrue(body['inventory'].endswith('/api/plugins/oxidized-viewer/inventory/'))
+
+    def test_inventory_alias_and_legacy_path(self):
+        OxidizedSource.objects.create(name='Lab', git_repo_path=self.repo)
+        for path in ('/api/plugins/oxidized-viewer/inventory/', '/api/plugins/oxidized-viewer/source/'):
+            response = self.client.get(path, HTTP_ACCEPT='application/json')
+            self.assertEqual(response.status_code, 200, path)
+            self.assertIsInstance(response.json(), list)
+
+    def test_malformed_sha_is_404_not_500(self):
+        from dcim.models import Device, DeviceRole, DeviceType, Manufacturer, Site
+
+        OxidizedSource.objects.create(name='Lab', git_repo_path=self.repo)
+        site = Site.objects.create(name='Site', slug='site')
+        manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
+        role = DeviceRole.objects.create(name='Router', slug='router')
+        device = Device.objects.create(name='spine1', site=site, device_type=device_type, role=role)
+        bad = 'not-a-sha-' + 'z' * 40
+        for path in (
+            f'/plugins/oxidized-viewer/devices/{device.pk}/commit/{bad}/',
+            f'/plugins/oxidized-viewer/devices/{device.pk}/diff/{bad}/{bad}/',
+            f'/api/plugins/oxidized-viewer/devices/{device.pk}/diff/{bad}/{bad}/',
+        ):
+            self.assertEqual(self.client.get(path).status_code, 404, path)
+        response = self.client.post(
+            f'/api/plugins/oxidized-viewer/devices/{device.pk}/commits/{bad}/note/', {'message': 'x'}
+        )
+        self.assertEqual(response.status_code, 404)

@@ -29,6 +29,7 @@ class OxidizedSourceSerializer(NetBoxModelSerializer):
             'name',
             'git_repo_path',
             'node_name_source',
+            'inventory_ip_field',
             'api_url',
             'scope_roles',
             'scope_platforms',
