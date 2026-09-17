@@ -6,6 +6,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-17
+
+### Added
+- Line numbers in the Config History view (Prism line-numbers plugin, vendored),
+  and `#L<n>` anchors that highlight and scroll to a line.
+- Search results now list the matching lines of each device with their line
+  numbers, each linking to that line of the configuration, instead of a text
+  snippet.
+- Prefix matching in search: every term matches the start of an indexed token,
+  so `10.10.10` finds `10.10.10.9` and `10.10.10.10`, and `krd` finds `1-krd-wa`.
+  Terms are whitelisted before they reach the raw tsquery.
+
+### Changed
+- Saving an Oxidized Source always returns to the source's own page, also when
+  the edit was opened from the list.
+
 ## [0.1.3] - 2026-09-16
 
 ### Added

@@ -232,10 +232,10 @@ class TestFTSSearchIntegration(TestCase):
 # ---------------------------------------------------------------------------
 
 
-class TestSearchHeadlineEscaping(TestCase):
+class TestSearchLineRendering(TestCase):
     """
     Config content is device-controlled (banners, descriptions).  The view must
-    escape it before marking the headline safe — a <script> tag in a config
+    escape it before marking a result line safe — a <script> tag in a config
     must never reach the page as live HTML.
     """
 
@@ -249,7 +249,9 @@ class TestSearchHeadlineEscaping(TestCase):
         ConfigSnapshot.objects.create(
             device=device,
             source=cls.source,
-            content=('set / system banner login <script>alert(1)</script> interface admin-state enable'),
+            content=(
+                'hostname evil-banner\nset / system banner login <script>alert(1)</script> interface admin-state enable\n'
+            ),
             commit_sha='b' * 40,
         )
 
@@ -260,26 +262,78 @@ class TestSearchHeadlineEscaping(TestCase):
         view.request = request
         return view.get_context_data()
 
-    def test_render_headline_escapes_html(self):
-        # The core guarantee: raw headline HTML is escaped, only the sentinel
-        # markers become live <mark> tags.
-        raw = '<script>alert(1)</script> \x01interface\x02'
-        rendered = ConfigSearchView._render_headline(raw)
-        self.assertEqual(
-            rendered,
-            '&lt;script&gt;alert(1)&lt;/script&gt; <mark>interface</mark>',
-        )
+    def test_render_line_escapes_html(self):
+        rendered = ConfigSearchView.render_line('<script>alert(1)</script> interface', ['interface'])
+        self.assertEqual(rendered, '&lt;script&gt;alert(1)&lt;/script&gt; <mark>interface</mark>')
 
     def test_no_live_html_reaches_search_results(self):
-        # End-to-end: whatever ts_headline returns (it strips well-formed tags
-        # itself, but that's parser behaviour we must not rely on), the only
-        # '<' in the final headline belongs to our own <mark> tags.
         context = self._search_context('interface')
         self.assertEqual(len(context['results']), 1)
-        headline = context['results'][0]['headline']
-        self.assertIn('<mark>interface</mark>', headline)
-        stripped = headline.replace('<mark>', '').replace('</mark>', '')
+        result = context['results'][0]
+        self.assertEqual([line['lineno'] for line in result['lines']], [2])
+        html = result['lines'][0]['html']
+        self.assertIn('<mark>interface</mark>', html)
+        stripped = html.replace('<mark>', '').replace('</mark>', '')
         self.assertNotIn('<', stripped)
+
+
+class TestPrefixSearch(TestCase):
+    """Each term matches the start of an indexed token, so part of an IP address
+    or of a hyphenated name finds the whole thing; and raw tsquery syntax in the
+    input can never reach Postgres."""
+
+    @classmethod
+    def setUpTestData(cls):
+        site, manufacturer, device_type, device_role = _make_device_fixtures()
+        cls.user = get_user_model().objects.create_superuser('prefix-admin')
+        cls.source = OxidizedSource.objects.create(name='Prefix Source', git_repo_path='/tmp/fake-repo-prefix')
+        contents = {
+            'edge1': 'hostname edge1\ninterface Loopback0\n ip address 10.10.10.10 255.255.255.255\n',
+            'edge2': 'hostname edge2\ninterface Loopback0\n ip address 10.10.10.9 255.255.255.255\n',
+            'fw-1-krd-wa': 'hostname 1-krd-wa\nsnmp-server community secret RO\n',
+        }
+        for i, (name, content) in enumerate(contents.items()):
+            device = Device.objects.create(name=name, site=site, device_type=device_type, role=device_role)
+            ConfigSnapshot.objects.create(device=device, source=cls.source, content=content, commit_sha=str(i) * 40)
+
+    def _names(self, query):
+        request = RequestFactory().get('/search/', {'q': query})
+        request.user = self.user
+        view = ConfigSearchView()
+        view.request = request
+        return sorted(r['device'].name for r in view.get_context_data()['results'])
+
+    def test_partial_ip_matches_both_addresses(self):
+        self.assertEqual(self._names('10.10.10'), ['edge1', 'edge2'])
+
+    def test_full_ip_is_still_exact_enough(self):
+        self.assertEqual(self._names('10.10.10.9'), ['edge2'])
+
+    def test_part_of_hyphenated_name_matches(self):
+        self.assertEqual(self._names('krd'), ['fw-1-krd-wa'])
+        self.assertEqual(self._names('1-krd'), ['fw-1-krd-wa'])
+
+    def test_terms_are_anded(self):
+        self.assertEqual(self._names('loopback0 10.10.10.10'), ['edge1'])
+
+    def test_line_numbers_point_at_the_matching_line(self):
+        request = RequestFactory().get('/search/', {'q': '10.10.10.9'})
+        request.user = self.user
+        view = ConfigSearchView()
+        view.request = request
+        result = view.get_context_data()['results'][0]
+        self.assertEqual(result['lines'][0]['lineno'], 3)
+        self.assertEqual(result['more_lines'], 0)
+
+    def test_tsquery_syntax_in_input_is_neutralised(self):
+        for query in ("secret' | 'x", 'snmp-server & !secret', '(secret)', 'secret:*', '"secret"', '\\'):
+            with self.subTest(query=query):
+                names = self._names(query)  # must not raise
+                self.assertIsInstance(names, list)
+        # Operators and quotes are stripped; what remains are plain ANDed terms.
+        self.assertEqual(self._names("secret' | !"), ['fw-1-krd-wa'])  # -> secret
+        self.assertEqual(self._names("secret' | 'x"), [])  # -> secret AND x; no token starts with x
+        self.assertEqual(self._names('snmp-server & !secret'), ['fw-1-krd-wa'])  # -> snmp-server AND secret
 
 
 # ---------------------------------------------------------------------------

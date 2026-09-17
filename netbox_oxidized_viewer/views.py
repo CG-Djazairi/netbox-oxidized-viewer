@@ -1,9 +1,10 @@
 import datetime
+import re
 
 from dcim.models import Device
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.contrib.postgres.search import SearchHeadline, SearchQuery, SearchRank
+from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, F
@@ -178,6 +179,13 @@ class OxidizedSourceView(generic.ObjectView):
 class OxidizedSourceEditView(generic.ObjectEditView):
     queryset = models.OxidizedSource.objects.all()
     form = forms.OxidizedSourceForm
+
+    def get_return_url(self, request, obj=None):
+        # Always land on the source's own page after a save, even when the edit
+        # was opened from the list (whose return_url would send us back there).
+        if obj is not None and obj.pk:
+            return obj.get_absolute_url()
+        return super().get_return_url(request, obj)
 
     def get(self, request, *args, **kwargs):
         # Single-source: send the "add" route to editing the existing source
@@ -370,23 +378,62 @@ class DiffDownloadView(View):
 class ConfigSearchView(LoginRequiredMixin, TemplateView):
     template_name = 'netbox_oxidized_viewer/search.html'
 
-    # Rows rendered per page.  SearchHeadline is O(matches × content_size), so
-    # we only ever annotate the rows on the requested page (see _fts_search).
+    # Rows rendered per page.
     SEARCH_PAGE_SIZE = 25
+    # Matching lines shown per device on the results page.
+    MAX_LINES_PER_RESULT = 8
 
-    # SearchHeadline does not HTML-escape the content it returns, and config
-    # content is device-controlled (banners, descriptions).  Have Postgres mark
-    # matches with non-HTML sentinels, escape the whole headline, then swap the
-    # sentinels for <mark> tags — never feed raw config through |safe.
-    HEADLINE_START_SENTINEL = '\x01'
-    HEADLINE_STOP_SENTINEL = '\x02'
+    # Characters a search term may carry into the raw tsquery. Everything else
+    # (quotes, backslashes, tsquery operators & | ! ( ) < >, whitespace) is
+    # dropped, so user input can never change the shape of the query.
+    _TERM_DISALLOWED = re.compile(r'[^\w./:@+-]')
 
     @classmethod
-    def _render_headline(cls, raw_headline):
-        escaped = escape(raw_headline)
-        return mark_safe(
-            escaped.replace(cls.HEADLINE_START_SENTINEL, '<mark>').replace(cls.HEADLINE_STOP_SENTINEL, '</mark>')
+    def parse_terms(cls, query):
+        """Split the query into cleaned, lower-cased search terms."""
+        terms = []
+        for raw in query.split():
+            term = cls._TERM_DISALLOWED.sub('', raw).lower()
+            if term:
+                terms.append(term)
+        return terms
+
+    @staticmethod
+    def build_tsquery(terms):
+        """
+        Prefix-match every term: 'krd':* matches the token krd and any token that
+        starts with it; '10.10.10':* matches 10.10.10.9 and 10.10.10.10 (an IP is a
+        single token for Postgres, so an exact-token search on part of it finds
+        nothing). Quoting keeps dots, slashes and hyphens inside one lexeme.
+        """
+        raw = ' & '.join(f"'{term}':*" for term in terms)
+        return SearchQuery(raw, search_type='raw', config='simple')
+
+    @staticmethod
+    def render_line(line, terms):
+        """Escape a config line, then mark the search terms in the escaped text.
+        Config content is device-controlled (banners, descriptions) and must never
+        reach the page as live HTML."""
+        escaped = escape(line)
+        pattern = re.compile(
+            '|'.join(re.escape(escape(term)) for term in sorted(terms, key=len, reverse=True)),
+            re.IGNORECASE,
         )
+        return mark_safe(pattern.sub(lambda m: f'<mark>{m.group(0)}</mark>', escaped))
+
+    @classmethod
+    def matching_lines(cls, content, terms):
+        """Return (lines, total): numbered lines containing any term (capped) and
+        the total count of such lines."""
+        lines = []
+        total = 0
+        for lineno, line in enumerate(content.splitlines(), start=1):
+            lowered = line.lower()
+            if any(term in lowered for term in terms):
+                total += 1
+                if len(lines) < cls.MAX_LINES_PER_RESULT:
+                    lines.append({'lineno': lineno, 'html': cls.render_line(line, terms)})
+        return lines, total
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -396,10 +443,11 @@ class ConfigSearchView(LoginRequiredMixin, TemplateView):
         total_count = 0
         page_obj = None
 
-        if len(query) >= 2:
+        terms = self.parse_terms(query) if len(query) >= 2 else []
+        if terms:
             source = get_source()
             if source:
-                results, total_count, page_obj = self._fts_search(query, source)
+                results, total_count, page_obj = self._fts_search(terms, source)
             else:
                 error = 'No Oxidized source configured.'
 
@@ -415,13 +463,13 @@ class ConfigSearchView(LoginRequiredMixin, TemplateView):
         )
         return context
 
-    def _fts_search(self, query, source):
-        sq = SearchQuery(query, config='simple')
+    def _fts_search(self, terms, source):
+        sq = self.build_tsquery(terms)
         # Restrict to devices the requesting user has view permission for.
         allowed_devices = Device.objects.restrict(self.request.user, 'view')
 
-        # Rank-ordered queryset of bare PKs — no headline, so COUNT(*) and the
-        # OFFSET/LIMIT page slice stay cheap regardless of total match count.
+        # Rank-ordered queryset of bare PKs, so COUNT(*) and the OFFSET/LIMIT page
+        # slice stay cheap regardless of total match count.
         ranked_pks = (
             models.ConfigSnapshot.objects.filter(source=source, search_vector=sq, device__in=allowed_devices)
             # F('search_vector') references the stored tsvector column directly;
@@ -434,37 +482,27 @@ class ConfigSearchView(LoginRequiredMixin, TemplateView):
         paginator = Paginator(ranked_pks, self.SEARCH_PAGE_SIZE)
         page_obj = paginator.get_page(self.request.GET.get('page') or 1)
 
-        # Re-fetch only this page's rows with the (expensive) headline annotation,
-        # preserving rank order.
+        # Re-fetch only this page's rows with their content, preserving rank order.
         page_qs = (
             models.ConfigSnapshot.objects.filter(pk__in=list(page_obj.object_list))
-            .annotate(
-                rank=SearchRank(F('search_vector'), sq),
-                headline=SearchHeadline(
-                    'content',
-                    sq,
-                    config='simple',
-                    start_sel=self.HEADLINE_START_SENTINEL,
-                    stop_sel=self.HEADLINE_STOP_SENTINEL,
-                    max_words=50,
-                    min_words=15,
-                    max_fragments=3,
-                    fragment_delimiter=' … ',
-                ),
-            )
+            .annotate(rank=SearchRank(F('search_vector'), sq))
             .select_related('device')
             .order_by('-rank', 'device_id')
         )
 
-        results = [
-            {
-                'device': snap.device,
-                'headline': self._render_headline(snap.headline),
-                'commit_sha': snap.commit_sha,
-                'indexed_at': snap.indexed_at,
-            }
-            for snap in page_qs
-        ]
+        results = []
+        for snap in page_qs:
+            lines, match_count = self.matching_lines(snap.content, terms)
+            results.append(
+                {
+                    'device': snap.device,
+                    'lines': lines,
+                    'match_count': match_count,
+                    'more_lines': max(match_count - len(lines), 0),
+                    'commit_sha': snap.commit_sha,
+                    'indexed_at': snap.indexed_at,
+                }
+            )
         return results, paginator.count, page_obj
 
 

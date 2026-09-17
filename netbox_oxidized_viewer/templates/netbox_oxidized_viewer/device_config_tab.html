@@ -6,6 +6,11 @@
 {{ block.super }}
 {# Prism is vendored (static/netbox_oxidized_viewer/prism/) — air-gapped NetBox installs are the norm for this plugin's audience #}
 <link rel="stylesheet" href="{% static 'netbox_oxidized_viewer/prism/prism-tomorrow.min.css' %}">
+<link rel="stylesheet" href="{% static 'netbox_oxidized_viewer/prism/prism-line-numbers.min.css' %}">
+<style>
+    /* Line targeted by a #L<n> anchor (search results link here) */
+    .line-numbers-rows > span.oxi-line-hit { background: rgba(255, 193, 7, 0.3); width: 200vw; }
+</style>
 {% endblock head %}
 
 {% block content %}
@@ -41,7 +46,7 @@
                     <strong>{{ latest_commit.subject }}</strong>
                     <span class="text-muted ms-2">— {{ latest_commit.author_name }}</span>
                 </div>
-                <pre class="rounded" style="max-height: 600px; overflow-y: auto; margin: 0;"><code class="language-bash">{{ config_content }}</code></pre>
+                <pre class="rounded line-numbers language-bash" style="max-height: 600px; overflow-y: auto; margin: 0;"><code class="language-bash">{{ config_content }}</code></pre>
                 {% endif %}
             </div>
         </div>
@@ -97,4 +102,21 @@
 {{ block.super }}
 <script src="{% static 'netbox_oxidized_viewer/prism/prism.min.js' %}"></script>
 <script src="{% static 'netbox_oxidized_viewer/prism/prism-bash.min.js' %}"></script>
+<script src="{% static 'netbox_oxidized_viewer/prism/prism-line-numbers.min.js' %}"></script>
+<script>
+(function () {
+    // #L<n> in the URL: highlight that line and scroll it into view once Prism
+    // has drawn the line-number gutter.
+    var m = /^#L(\d+)$/.exec(window.location.hash);
+    if (!m) return;
+    var n = parseInt(m[1], 10);
+    window.addEventListener('load', function () {
+        var rows = document.querySelector('pre.line-numbers .line-numbers-rows');
+        var span = rows && rows.children[n - 1];
+        if (!span) return;
+        span.classList.add('oxi-line-hit');
+        span.scrollIntoView({ block: 'center' });
+    });
+})();
+</script>
 {% endblock javascript %}

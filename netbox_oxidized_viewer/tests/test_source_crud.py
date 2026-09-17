@@ -61,3 +61,12 @@ class TestOxidizedSourceSave(TestCase):
         response = self.client.get(f'/api/plugins/oxidized-viewer/sources/{source.pk}/', HTTP_ACCEPT='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['git_repo_path'], self.repo)
+
+    def test_edit_from_list_returns_to_the_source_page(self):
+        source = OxidizedSource.objects.create(name='Lab', git_repo_path=self.repo)
+        response = self._post(
+            f'/plugins/oxidized-viewer/sources/{source.pk}/edit/?return_url=/plugins/oxidized-viewer/sources/',
+            name='Renamed',
+        )
+        self.assertEqual(response.status_code, 302, response.content[:2000])
+        self.assertEqual(response['Location'], source.get_absolute_url())

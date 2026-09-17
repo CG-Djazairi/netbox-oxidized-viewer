@@ -10,7 +10,7 @@
         <div class="card-body">
             <form method="get">
                 <div class="input-group">
-                    <input type="text" name="q" class="form-control" placeholder="Search across all device configurations…" value="{{ query }}" autofocus>
+                    <input type="text" name="q" class="form-control" placeholder="Search across all device configurations… (each term matches the start of a word: 10.10.10 finds 10.10.10.9)" value="{{ query }}" autofocus>
                     <button type="submit" class="btn btn-primary">Search</button>
                 </div>
                 {% if query %}
@@ -48,8 +48,22 @@
             <span class="text-muted small">{{ result.indexed_at|date:"Y-m-d H:i" }}</span>
         </div>
         <div class="card-body p-0">
-            {# Headline is escaped server-side and marked safe by _render_headline — config content never reaches the page unescaped #}
-            <div class="px-3 py-2" style="font-family:var(--bs-font-monospace);font-size:0.85em;white-space:pre-wrap;">{{ result.headline }}</div>
+            {# Each line is escaped server-side and marked safe by render_line — config content never reaches the page unescaped #}
+            <table class="table table-sm mb-0" style="font-family:var(--bs-font-monospace);font-size:0.85em;">
+                <tbody>
+                {% for line in result.lines %}
+                <tr>
+                    <td class="text-end text-muted pe-3" style="width:1%;white-space:nowrap;">
+                        {% if result.device %}<a href="{% url 'plugins:netbox_oxidized_viewer:device_oxidized_config' pk=result.device.pk %}#L{{ line.lineno }}" title="Open the configuration at line {{ line.lineno }}">{{ line.lineno }}</a>{% else %}{{ line.lineno }}{% endif %}
+                    </td>
+                    <td style="white-space:pre-wrap;">{{ line.html }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% if result.more_lines %}
+            <div class="px-3 py-1 text-muted small">+{{ result.more_lines }} more matching line{{ result.more_lines|pluralize }}</div>
+            {% endif %}
         </div>
     </div>
     {% endfor %}
