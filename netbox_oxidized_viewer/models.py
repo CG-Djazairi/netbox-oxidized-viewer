@@ -104,6 +104,56 @@ class OxidizedSource(JobsMixin, NetBoxModel):
             )
 
 
+class OxidizedInventory(NetBoxModel):
+    """
+    A named inventory endpoint for one Oxidized instance (typically one per
+    security zone). Each inventory exports the devices that match BOTH the
+    source's global scope and its own scope, at
+    /api/plugins/oxidized-viewer/inventory/<slug>/ - so every instance polls
+    only its own devices while all backups land in the one shared repository.
+    """
+
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(max_length=100, unique=True, help_text=_('Used in the inventory URL.'))
+    description = models.CharField(max_length=200, blank=True)
+    enabled = models.BooleanField(default=True, help_text=_('A disabled inventory answers 404.'))
+    scope_sites = models.ManyToManyField(
+        to='dcim.Site',
+        blank=True,
+        related_name='+',
+        help_text=_('Only export devices at these sites (blank = any site).'),
+    )
+    scope_roles = models.ManyToManyField(
+        to='dcim.DeviceRole',
+        blank=True,
+        related_name='+',
+        help_text=_('Only export devices with these roles (blank = any role).'),
+    )
+    scope_platforms = models.ManyToManyField(
+        to='dcim.Platform',
+        blank=True,
+        related_name='+',
+        help_text=_('Only export devices with these platforms (blank = any platform).'),
+    )
+    scope_tags = models.ManyToManyField(
+        to='extras.Tag',
+        blank=True,
+        related_name='+',
+        help_text=_('Only export devices carrying at least one of these tags (blank = any).'),
+    )
+
+    class Meta:
+        ordering = ('name',)
+        verbose_name = _('Oxidized Inventory')
+        verbose_name_plural = _('Oxidized Inventories')
+
+    def __str__(self):
+        return self.name
+
+    def get_absolute_url(self):
+        return reverse('plugins:netbox_oxidized_viewer:oxidizedinventory', args=[self.pk])
+
+
 class ConfigSnapshot(models.Model):
     """
     One row per device — stores the most-recently-indexed config content and a

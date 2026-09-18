@@ -6,6 +6,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-18
+
+### Added
+- **Named inventories** (Oxidized → Inventories): one endpoint per Oxidized
+  instance at `/api/plugins/oxidized-viewer/inventory/<slug>/`, scoped by sites,
+  roles, platforms and/or tags and always within the source's backup scope. The
+  inventory page shows the URL to paste into that instance's Oxidized config and
+  a preview of the exported devices. Also exposed at `/api/.../inventories/`
+  and listed at the API root. This is the intended way to run several Oxidized
+  instances (one per zone) against one shared repository.
+
 ## [0.1.5] - 2026-09-17
 
 ### Fixed

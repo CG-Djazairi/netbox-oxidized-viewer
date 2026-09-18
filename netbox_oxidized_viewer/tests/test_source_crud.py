@@ -143,3 +143,17 @@ class TestOxidizedSourceSave(TestCase):
             f'/api/plugins/oxidized-viewer/devices/{device.pk}/commits/{bad}/note/', {'message': 'x'}
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_rest_update_scope_by_pk(self):
+        from dcim.models import DeviceRole
+
+        source = OxidizedSource.objects.create(name='Lab', git_repo_path=self.repo)
+        role = DeviceRole.objects.create(name='Switch', slug='switch')
+        response = self.client.patch(
+            f'/api/plugins/oxidized-viewer/sources/{source.pk}/',
+            {'scope_roles': [role.pk]},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content[:500])
+        self.assertEqual(list(source.scope_roles.values_list('pk', flat=True)), [role.pk])
+        self.assertEqual(response.json()['scope_roles'][0]['slug'], 'switch')

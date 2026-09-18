@@ -1,7 +1,6 @@
 from dcim.models import Device
 from django.shortcuts import get_object_or_404
 from netbox.api.viewsets import NetBoxModelViewSet
-from netbox.plugins import get_plugin_config
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
@@ -9,15 +8,15 @@ from rest_framework.routers import APIRootView
 from rest_framework.views import APIView
 
 from .. import filters
-from ..models import ConfigCommitNote, OxidizedSource
+from ..inventory import build_inventory
+from ..models import ConfigCommitNote, OxidizedInventory, OxidizedSource
 from ..services.git_backend import GitBackendError
 from ..utils import (
     get_backend_and_filename_for_device,
     get_source,
     resolve_device_field,
-    scope_device_queryset,
 )
-from .serializers import OxidizedSourceSerializer
+from .serializers import OxidizedInventorySerializer, OxidizedSourceSerializer
 
 
 class OxidizedAPIRootView(APIRootView):
@@ -40,6 +39,10 @@ class OxidizedAPIRootView(APIRootView):
                 'devices/{pk}/sync': f'{root}devices/{{pk}}/sync/',
             }
         )
+        for slug in OxidizedInventory.objects.filter(enabled=True).values_list('slug', flat=True):
+            response.data[f'inventory/{slug}'] = reverse(
+                f'{namespace}:inventory-scoped', kwargs={'slug': slug}, request=request
+            )
         return response
 
 
@@ -49,6 +52,16 @@ class OxidizedSourceViewSet(NetBoxModelViewSet):
     queryset = OxidizedSource.objects.prefetch_related('scope_roles', 'scope_platforms', 'scope_tags', 'tags')
     serializer_class = OxidizedSourceSerializer
     filterset_class = filters.OxidizedSourceFilterSet
+
+
+class OxidizedInventoryViewSet(NetBoxModelViewSet):
+    """CRUD for named (per-zone) inventories."""
+
+    queryset = OxidizedInventory.objects.prefetch_related(
+        'scope_sites', 'scope_roles', 'scope_platforms', 'scope_tags', 'tags'
+    )
+    serializer_class = OxidizedInventorySerializer
+    filterset_class = filters.OxidizedInventoryFilterSet
 
 
 def _commit_to_dict(commit):
@@ -74,67 +87,25 @@ class CanViewDevices(BasePermission):
         return request.user.has_perm('dcim.view_device')
 
 
-def _oxidized_model(device, platform_map):
-    """Return the Oxidized driver name for a device.
-
-    Oxidized's `model` field is a *driver* name (ios, eos, junos…), which maps
-    to NetBox's platform, not the hardware model. Prefer platform.slug (with an
-    optional override map for when the slug differs from the driver name); fall
-    back to the device_type model only when no platform is set.
-    """
-    if device.platform:
-        slug = device.platform.slug
-        return platform_map.get(slug, slug)
-    if device.device_type:
-        return device.device_type.model.lower()
-    return 'unknown'
-
-
 class OxidizedInventoryView(APIView):
     """
-    Returns the device inventory in Oxidized's HTTP source format.
-    Endpoint: GET /api/plugins/oxidized-viewer/source/
+    Device inventory in Oxidized's HTTP source format.
+
+    GET /api/plugins/oxidized-viewer/inventory/          every in-scope device
+    GET /api/plugins/oxidized-viewer/inventory/<slug>/   one named inventory
+                                                          (its scope AND the source scope)
     """
 
     permission_classes = [IsAuthenticated, CanViewDevices]
 
-    def get(self, request, *args, **kwargs):
+    def get(self, request, slug=None, *args, **kwargs):
         source = get_source()
         if not source:
             return Response([])
-
-        platform_map = get_plugin_config('netbox_oxidized_viewer', 'platform_model_map') or {}
-        group_field = get_plugin_config('netbox_oxidized_viewer', 'inventory_group_field')
-        ip_field = source.inventory_ip_field or 'primary_ip4'
-
-        # restrict() honours ObjectPermission constraints, so a token scoped to
-        # a subset of devices only ever exports that subset. scope filters keep
-        # out-of-scope gear (passive devices, servers, …) out of the node list
-        # entirely, so Oxidized never tries to poll them.
-        devices = (
-            Device.objects.restrict(request.user, 'view')
-            .filter(status='active')
-            .select_related('device_type', 'platform', 'primary_ip4')
-        )
-        devices = scope_device_queryset(source, devices)
-
-        inventory = []
-        for device in devices:
-            name = resolve_device_field(device, source.node_name_source)
-            if not name:
-                continue
-            entry = {
-                'name': name,
-                'model': _oxidized_model(device, platform_map),
-                'ip': resolve_device_field(device, ip_field) or '',
-            }
-            if group_field:
-                group = resolve_device_field(device, group_field)
-                if group:
-                    entry['group'] = group
-            inventory.append(entry)
-
-        return Response(inventory)
+        inventory = None
+        if slug is not None:
+            inventory = get_object_or_404(OxidizedInventory.objects.all(), slug=slug, enabled=True)
+        return Response(build_inventory(request.user, source, inventory))
 
 
 # ---------------------------------------------------------------------------

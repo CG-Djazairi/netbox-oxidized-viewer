@@ -19,6 +19,13 @@ urlpatterns = [
     # Views NetBox registers for the model's features (changelog, jobs) and any
     # @register_model_view(OxidizedSource, ...) of our own.
     path('sources/<int:pk>/', include(get_model_urls('netbox_oxidized_viewer', 'oxidizedsource'))),
+    # Named inventories (one per Oxidized instance / zone)
+    path('inventories/', views.OxidizedInventoryListView.as_view(), name='oxidizedinventory_list'),
+    path('inventories/add/', views.OxidizedInventoryEditView.as_view(), name='oxidizedinventory_add'),
+    path('inventories/<int:pk>/', views.OxidizedInventoryView.as_view(), name='oxidizedinventory'),
+    path('inventories/<int:pk>/edit/', views.OxidizedInventoryEditView.as_view(), name='oxidizedinventory_edit'),
+    path('inventories/<int:pk>/delete/', views.OxidizedInventoryDeleteView.as_view(), name='oxidizedinventory_delete'),
+    path('inventories/<int:pk>/', include(get_model_urls('netbox_oxidized_viewer', 'oxidizedinventory'))),
     # Device config tab (registered via @register_model_view on /dcim/devices/<pk>/config/)
     path('devices/<int:pk>/config/', views.DeviceConfigView.as_view(), name='device_oxidized_config'),
     # Diff views

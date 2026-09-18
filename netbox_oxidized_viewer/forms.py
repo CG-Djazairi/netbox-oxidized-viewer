@@ -1,11 +1,11 @@
-from dcim.models import DeviceRole, Platform
+from dcim.models import DeviceRole, Platform, Site
 from django import forms
 from extras.models import Tag
 from netbox.forms import NetBoxModelFilterSetForm, NetBoxModelForm
-from utilities.forms.fields import DynamicModelMultipleChoiceField
+from utilities.forms.fields import DynamicModelMultipleChoiceField, SlugField
 from utilities.forms.rendering import FieldSet
 
-from .models import OxidizedSource
+from .models import OxidizedInventory, OxidizedSource
 from .services.git_backend import GitBackend, InvalidRepository, RepositoryNotFound
 
 
@@ -79,3 +79,43 @@ class OxidizedSourceForm(NetBoxModelForm):
 class OxidizedSourceFilterForm(NetBoxModelFilterSetForm):
     model = OxidizedSource
     # Basic filters can be added here if needed in the UI
+
+
+class OxidizedInventoryForm(NetBoxModelForm):
+    slug = SlugField()
+    scope_sites = DynamicModelMultipleChoiceField(
+        queryset=Site.objects.all(), required=False, label='Sites', help_text='Blank = any site.'
+    )
+    scope_roles = DynamicModelMultipleChoiceField(
+        queryset=DeviceRole.objects.all(), required=False, label='Device roles', help_text='Blank = any role.'
+    )
+    scope_platforms = DynamicModelMultipleChoiceField(
+        queryset=Platform.objects.all(), required=False, label='Platforms', help_text='Blank = any platform.'
+    )
+    scope_tags = DynamicModelMultipleChoiceField(
+        queryset=Tag.objects.all(), required=False, label='Device tags', help_text='Blank = any tag.'
+    )
+
+    fieldsets = (
+        FieldSet('name', 'slug', 'description', 'enabled', name='Inventory'),
+        FieldSet('scope_sites', 'scope_roles', 'scope_platforms', 'scope_tags', name='Scope'),
+        FieldSet('tags', name='Tags'),
+    )
+
+    class Meta:
+        model = OxidizedInventory
+        fields = (
+            'name',
+            'slug',
+            'description',
+            'enabled',
+            'scope_sites',
+            'scope_roles',
+            'scope_platforms',
+            'scope_tags',
+            'tags',
+        )
+
+
+class OxidizedInventoryFilterForm(NetBoxModelFilterSetForm):
+    model = OxidizedInventory

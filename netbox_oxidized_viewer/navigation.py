@@ -24,6 +24,11 @@ menu = PluginMenu(
                     link_text='Sources',
                     permissions=['netbox_oxidized_viewer.view_oxidizedsource'],
                 ),
+                PluginMenuItem(
+                    link='plugins:netbox_oxidized_viewer:oxidizedinventory_list',
+                    link_text='Inventories',
+                    permissions=['netbox_oxidized_viewer.view_oxidizedinventory'],
+                ),
             ),
         ),
     ),

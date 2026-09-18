@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-oxidized-viewer"
-version = "0.1.5"
+version = "0.1.6"
 description = "NetBox plugin for viewing Oxidized configuration backups with history, diff, and full-text search"
 readme = "README.md"
 # NetBox 4.3 supports Python 3.10-3.12 (4.5 requires 3.12); follow the oldest supported NetBox.

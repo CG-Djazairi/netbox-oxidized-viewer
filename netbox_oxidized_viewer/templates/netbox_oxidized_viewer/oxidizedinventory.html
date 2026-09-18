@@ -1,0 +1,69 @@
+{% extends 'generic/object.html' %}
+{% load helpers %}
+
+{% block content %}
+<div class="row">
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">Oxidized Inventory</h5>
+            <div class="card-body">
+                <table class="table table-hover attr-table">
+                    <tr><th scope="row">Name</th><td>{{ object.name }}</td></tr>
+                    <tr><th scope="row">Slug</th><td><code>{{ object.slug }}</code></td></tr>
+                    <tr><th scope="row">Description</th><td>{{ object.description|placeholder }}</td></tr>
+                    <tr><th scope="row">Enabled</th><td>{% checkmark object.enabled %}</td></tr>
+                    <tr><th scope="row">Inventory URL</th><td><code>{{ inventory_url }}</code></td></tr>
+                </table>
+                <p class="text-muted small mb-0">
+                    Paste the URL as <code>source.http.url</code> in this instance's Oxidized config, with a NetBox
+                    token whose user may view devices. The endpoint returns a flat list with
+                    <code>name</code>, <code>model</code> and <code>ip</code>.
+                </p>
+            </div>
+        </div>
+        {% include 'inc/panels/tags.html' %}
+    </div>
+
+    <div class="col col-md-6">
+        <div class="card">
+            <h5 class="card-header">Scope</h5>
+            <div class="card-body">
+                <p class="text-muted small">Devices are exported when they match every filter set below (blank = any) <em>and</em> the source's backup scope.</p>
+                <table class="table table-hover attr-table">
+                    <tr><th scope="row">Sites</th><td>{% for s in object.scope_sites.all %}<span class="badge text-bg-grey">{{ s }}</span> {% empty %}<span class="text-muted">Any</span>{% endfor %}</td></tr>
+                    <tr><th scope="row">Device roles</th><td>{% for r in object.scope_roles.all %}<span class="badge text-bg-grey">{{ r }}</span> {% empty %}<span class="text-muted">Any</span>{% endfor %}</td></tr>
+                    <tr><th scope="row">Platforms</th><td>{% for p in object.scope_platforms.all %}<span class="badge text-bg-grey">{{ p }}</span> {% empty %}<span class="text-muted">Any</span>{% endfor %}</td></tr>
+                    <tr><th scope="row">Device tags</th><td>{% for t in object.scope_tags.all %}<span class="badge text-bg-grey">{{ t }}</span> {% empty %}<span class="text-muted">Any</span>{% endfor %}</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-3">
+    <div class="col col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>Exported devices</strong>
+                <span class="text-muted small">{{ entry_count }} device{{ entry_count|pluralize }}{% if entry_count > entries|length %}, first {{ entries|length }} shown{% endif %}</span>
+            </div>
+            <div class="card-body p-0">
+                {% if not source %}
+                <div class="alert alert-warning m-3">No Oxidized source configured yet; nothing is exported.</div>
+                {% else %}
+                <table class="table table-hover table-headings mb-0">
+                    <thead><tr><th>name</th><th>model</th><th>ip</th></tr></thead>
+                    <tbody>
+                    {% for e in entries %}
+                    <tr><td>{{ e.name }}</td><td><code>{{ e.model }}</code></td><td>{{ e.ip|placeholder }}</td></tr>
+                    {% empty %}
+                    <tr><td colspan="3" class="text-center text-muted">No device matches this scope.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock content %}

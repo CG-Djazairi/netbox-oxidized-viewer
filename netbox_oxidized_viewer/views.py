@@ -21,6 +21,7 @@ from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
 from . import filters, forms, models, tables
+from .inventory import build_inventory
 from .services.git_backend import CommitNotFound, FileNotFoundAtCommit, GitBackendError
 from .utils import (
     get_backend_and_filename_for_device,
@@ -199,6 +200,48 @@ class OxidizedSourceEditView(generic.ObjectEditView):
 
 class OxidizedSourceDeleteView(generic.ObjectDeleteView):
     queryset = models.OxidizedSource.objects.all()
+
+
+class OxidizedInventoryListView(generic.ObjectListView):
+    queryset = models.OxidizedInventory.objects.all()
+    table = tables.OxidizedInventoryTable
+    filterset = filters.OxidizedInventoryFilterSet
+    filterset_form = forms.OxidizedInventoryFilterForm
+
+
+class OxidizedInventoryView(generic.ObjectView):
+    queryset = models.OxidizedInventory.objects.all()
+
+    PREVIEW_ROWS = 10
+
+    def get_extra_context(self, request, instance):
+        from django.urls import reverse as django_reverse
+
+        source = get_source()
+        entries = build_inventory(request.user, source, instance) if source else []
+        api_path = django_reverse(
+            'plugins-api:netbox_oxidized_viewer-api:inventory-scoped', kwargs={'slug': instance.slug}
+        )
+        return {
+            'inventory_url': request.build_absolute_uri(api_path),
+            'source': source,
+            'entry_count': len(entries),
+            'entries': entries[: self.PREVIEW_ROWS],
+        }
+
+
+class OxidizedInventoryEditView(generic.ObjectEditView):
+    queryset = models.OxidizedInventory.objects.all()
+    form = forms.OxidizedInventoryForm
+
+    def get_return_url(self, request, obj=None):
+        if obj is not None and obj.pk:
+            return obj.get_absolute_url()
+        return super().get_return_url(request, obj)
+
+
+class OxidizedInventoryDeleteView(generic.ObjectDeleteView):
+    queryset = models.OxidizedInventory.objects.all()
 
 
 class SourceReindexView(LoginRequiredMixin, View):

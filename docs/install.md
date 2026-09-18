@@ -203,6 +203,23 @@ The canonical path is `/api/plugins/oxidized-viewer/inventory/`; `source/` is an
 kept for existing Oxidized configurations. Both, and the per-device endpoints, are listed
 at the plugin's API root.
 
+### Several Oxidized instances, one repository
+
+When each security zone runs its own Oxidized, all of them can still write to the one
+repository the plugin reads (each instance pushes to a shared git remote with Oxidized's
+git-remote hook; the NetBox host mirrors it). What differs per instance is *which devices it
+polls*: create one **Inventory** per instance under **Oxidized → Inventories**, give it a
+scope (sites, roles, platforms, tags) and point that instance at the URL shown on its page:
+
+```
+https://<netbox>/api/plugins/oxidized-viewer/inventory/<slug>/
+```
+
+An inventory exports the devices that match its own scope **and** the source's backup
+scope, so it can narrow the fleet but never widen it. A disabled inventory answers 404.
+The token used by an instance still needs the view permission on devices, and a constrained
+permission narrows the export further.
+
 `ip` is the device's primary IPv4 by default. If your management addresses live
 elsewhere, set **Inventory IP field** on the source (Oxidized → Sources → edit) to any
 device attribute or custom field (`cf_<name>`); an object custom field referencing an IP

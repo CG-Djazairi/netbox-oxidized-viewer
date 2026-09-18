@@ -60,6 +60,10 @@ def scope_device_queryset(source, queryset):
     """
     if source is None:
         return queryset
+    # OxidizedInventory adds a site scope; OxidizedSource has none.
+    scope_sites = getattr(source, 'scope_sites', None)
+    if scope_sites is not None and scope_sites.exists():
+        queryset = queryset.filter(site__in=scope_sites.all())
     if source.scope_roles.exists():
         queryset = queryset.filter(role__in=source.scope_roles.all())
     if source.scope_platforms.exists():
