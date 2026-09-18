@@ -222,8 +222,9 @@ class TestSearchViewPermissions(TestCase):
 
 
 class TestDashboardBackupHealth(TestCase):
-    """The dashboard flags stale backups and lists active devices with no
-    snapshot at all — the silent-backup-failure case."""
+    """Without run reports from Oxidized, an old commit only means "unchanged":
+    the dashboard calls it unverified, not stale. Devices with no snapshot at
+    all are listed as never backed up."""
 
     @classmethod
     def setUpTestData(cls):
@@ -246,7 +247,7 @@ class TestDashboardBackupHealth(TestCase):
             commit_sha='a' * 40,
             commit_timestamp=timezone.now(),
         )
-        # Old backup (10 days) → stale (default threshold 26h).
+        # Last change 10 days ago and no run report: unverified, NOT stale.
         stale = _device('stale1')
         ConfigSnapshot.objects.create(
             device=stale,
@@ -268,18 +269,20 @@ class TestDashboardBackupHealth(TestCase):
     def test_counts(self):
         ctx = self._context()
         self.assertEqual(ctx['ok_count'], 1)
-        self.assertEqual(ctx['stale_count'], 1)
+        self.assertEqual(ctx['stale_count'], 0)
+        self.assertEqual(ctx['unverified_count'], 1)
+        self.assertEqual(ctx['failing_count'], 0)
         self.assertEqual(ctx['missing_count'], 1)
 
     def test_missing_device_listed(self):
         ctx = self._context()
         self.assertEqual([m['device'].name for m in ctx['missing']], ['missing1'])
 
-    def test_stale_flag_on_row(self):
+    def test_health_on_row(self):
         ctx = self._context()
         by_name = {d['device'].name: d for d in ctx['devices_data']}
-        self.assertFalse(by_name['fresh1']['is_stale'])
-        self.assertTrue(by_name['stale1']['is_stale'])
+        self.assertEqual(by_name['fresh1']['health'], 'ok')
+        self.assertEqual(by_name['stale1']['health'], 'unverified')
 
     def test_out_of_scope_device_not_in_missing(self):
         # A server (out of scope) with no snapshot must NOT show as "never backed up".

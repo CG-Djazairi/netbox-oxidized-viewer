@@ -6,6 +6,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-18
+
+### Fixed
+- A device that is backed up successfully but whose configuration never changes
+  was flagged **stale**: Oxidized commits only on change, and staleness was
+  computed from the age of the newest commit. Health now comes from the outcome
+  of Oxidized's runs; without run reports such a device is *unverified*, never
+  stale.
+
+### Added
+- `BackupStatus` per device (migration 0004), fed by Oxidized through
+  `POST /api/plugins/oxidized-viewer/hook/` (exec hook on `node_success` /
+  `node_fail`, permission `add_backupstatus`) or, when the source has an API URL,
+  pulled from `nodes.json` by the index job.
+- Dashboard and device card: *Up to date*, *Failing* (with Oxidized's error),
+  *Stale* (runs stopped), *Unverified*, *Never backed up* (with the last reported
+  failure when there is one); "last backup run" and "last change" are shown
+  separately.
+
 ## [0.1.6] - 2026-09-18
 
 ### Added

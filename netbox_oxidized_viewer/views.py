@@ -1,4 +1,3 @@
-import datetime
 import re
 
 from dcim.models import Device
@@ -10,7 +9,6 @@ from django.core.paginator import Paginator
 from django.db.models import Count, F
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
-from django.utils import timezone
 from django.utils.html import escape
 from django.utils.http import content_disposition_header
 from django.utils.safestring import mark_safe
@@ -20,7 +18,7 @@ from netbox.plugins import get_plugin_config
 from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
-from . import filters, forms, models, tables
+from . import filters, forms, health, models, tables
 from .inventory import build_inventory
 from .services.git_backend import CommitNotFound, FileNotFoundAtCommit, GitBackendError
 from .utils import (
@@ -100,17 +98,19 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         devices_data = []
         missing = []
-        ok_count = stale_count = 0
+        counts = dict.fromkeys((health.OK, health.FAILING, health.STALE, health.UNVERIFIED), 0)
+        has_run_reports = False
         source = get_source()
         stale_after_hours = get_plugin_config('netbox_oxidized_viewer', 'stale_after_hours') or 26
 
         if source:
-            stale_before = timezone.now() - datetime.timedelta(hours=stale_after_hours)
-            # Served entirely from the ConfigSnapshot index — a per-device git
-            # history walk here cost O(devices × history) per cold load.
+            # Served entirely from the ConfigSnapshot index - a per-device git
+            # history walk here cost O(devices x history) per cold load.
             # Restricted to viewable devices, otherwise commit metadata leaks
             # for every device in NetBox.
             viewable = Device.objects.restrict(self.request.user, 'view')
+            statuses = {status.device_id: status for status in models.BackupStatus.objects.filter(device__in=viewable)}
+            has_run_reports = bool(statuses)
             snapshots = (
                 models.ConfigSnapshot.objects.filter(source=source, device__in=viewable)
                 .select_related('device')
@@ -121,11 +121,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             indexed_ids = set()
             for snap in snapshots:
                 indexed_ids.add(snap.device_id)
-                is_stale = snap.commit_timestamp is None or snap.commit_timestamp < stale_before
-                if is_stale:
-                    stale_count += 1
-                else:
-                    ok_count += 1
+                status = statuses.get(snap.device_id)
+                state = health.compute_health(snap, status, stale_after_hours)
+                counts[state] = counts.get(state, 0) + 1
                 devices_data.append(
                     {
                         'device': snap.device,
@@ -134,14 +132,17 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                         'commit_timestamp': snap.commit_timestamp,
                         'commit_subject': snap.commit_subject,
                         'indexed_at': snap.indexed_at,
-                        'is_stale': is_stale,
+                        'health': state,
+                        'status': status,
+                        # kept for API/template compatibility: anything that is not healthy
+                        'is_stale': state != health.OK,
                     }
                 )
 
             # Never-backed-up: active, in-scope, viewable devices whose node name
             # resolves (so they *should* have a backup) but that have no snapshot.
-            # Scope filtering keeps out-of-scope gear (passives, servers, …) off
-            # this list — the classic silent-failure case, without the noise.
+            # Scope filtering keeps out-of-scope gear (passives, servers, ...) off
+            # this list - the classic silent-failure case, without the noise.
             candidates = scope_device_queryset(
                 source,
                 viewable.filter(status='active').exclude(pk__in=indexed_ids),
@@ -149,17 +150,20 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             for device in candidates.iterator():
                 filename = resolve_device_field(device, source.node_name_source)
                 if filename:
-                    missing.append({'device': device, 'filename': filename})
+                    missing.append({'device': device, 'filename': filename, 'status': statuses.get(device.pk)})
 
         context.update(
             {
                 'devices_data': devices_data,
                 'missing': missing,
-                'ok_count': ok_count,
-                'stale_count': stale_count,
+                'ok_count': counts[health.OK],
+                'failing_count': counts[health.FAILING],
+                'stale_count': counts[health.STALE],
+                'unverified_count': counts[health.UNVERIFIED],
                 'missing_count': len(missing),
                 'total_count': len(devices_data),
                 'stale_after_hours': stale_after_hours,
+                'has_run_reports': has_run_reports,
                 'source': source,
             }
         )

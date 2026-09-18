@@ -4,8 +4,12 @@
     Config Backup
     {% if oxi_status == 'ok' %}
     <span class="badge text-bg-success">Up to date</span>
+    {% elif oxi_status == 'failing' %}
+    <span class="badge text-bg-danger">Failing</span>
     {% elif oxi_status == 'stale' %}
-    <span class="badge text-bg-warning" title="Older than {{ oxi_stale_after_hours }}h">Stale</span>
+    <span class="badge text-bg-warning" title="Oxidized has not reported a run for more than {{ oxi_stale_after_hours }}h">Stale</span>
+    {% elif oxi_status == 'unverified' %}
+    <span class="badge text-bg-secondary" title="No run reports from Oxidized and no change for more than {{ oxi_stale_after_hours }}h">Unverified</span>
     {% else %}
     <span class="badge text-bg-danger">No backup</span>
     {% endif %}
@@ -14,7 +18,17 @@
     {% if oxi_snapshot %}
     <table class="table table-borderless attr-table mb-2">
       <tr>
-        <th scope="row">Last backup</th>
+        <th scope="row">Last backup run</th>
+        <td>{% if oxi_run %}{{ oxi_run.last_run }} <small class="text-muted">{{ oxi_run.last_status }}</small>{% else %}<span class="text-muted">not reported by Oxidized</span>{% endif %}</td>
+      </tr>
+      {% if oxi_run.last_error %}
+      <tr>
+        <th scope="row">Last error</th>
+        <td class="text-danger">{{ oxi_run.last_error }}</td>
+      </tr>
+      {% endif %}
+      <tr>
+        <th scope="row">Last change</th>
         <td>{{ oxi_snapshot.commit_timestamp|placeholder }}</td>
       </tr>
       <tr>
@@ -35,6 +49,9 @@
       <i class="mdi mdi-download"></i> Download
     </a>
     {% else %}
+    {% if oxi_run %}
+    <p class="mb-2">Last run reported by Oxidized: <strong>{{ oxi_run.last_status }}</strong> at {{ oxi_run.last_run }}{% if oxi_run.last_error %} &mdash; <span class="text-danger">{{ oxi_run.last_error }}</span>{% endif %}</p>
+    {% endif %}
     <p class="text-muted mb-0">
       No configuration backup has been indexed for this device.
       Confirm Oxidized backs it up and that its node name matches the source mapping.

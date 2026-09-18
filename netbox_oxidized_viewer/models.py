@@ -154,6 +154,31 @@ class OxidizedInventory(NetBoxModel):
         return reverse('plugins:netbox_oxidized_viewer:oxidizedinventory', args=[self.pk])
 
 
+class BackupStatus(models.Model):
+    """
+    Outcome of Oxidized's most recent run for a device, reported by Oxidized
+    itself (exec hook, or nodes.json when the web API is configured).
+
+    A commit only says when a configuration last CHANGED: Oxidized commits on
+    change, so a healthy device that never changes has an old commit. This row
+    says when the device was last successfully BACKED UP, and why a run failed.
+    """
+
+    device = models.OneToOneField(to='dcim.Device', on_delete=models.CASCADE, related_name='oxidized_backup_status')
+    last_status = models.CharField(max_length=50)
+    last_run = models.DateTimeField()
+    last_success = models.DateTimeField(blank=True, null=True)
+    last_error = models.CharField(max_length=255, blank=True, default='')
+    updated = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _('Backup status')
+        verbose_name_plural = _('Backup statuses')
+
+    def __str__(self):
+        return f'{self.device}: {self.last_status}'
+
+
 class ConfigSnapshot(models.Model):
     """
     One row per device — stores the most-recently-indexed config content and a

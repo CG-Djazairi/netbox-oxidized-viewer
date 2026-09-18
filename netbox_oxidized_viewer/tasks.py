@@ -2,8 +2,10 @@ import logging
 
 from dcim.models import Device
 
+from .health import pull_statuses
 from .models import ConfigSnapshot, OxidizedSource
 from .services.git_backend import GitBackend, InvalidRepository, RepositoryNotFound
+from .services.oxidized_api import OxidizedAPIError
 from .utils import resolve_device_field, scope_device_queryset
 
 logger = logging.getLogger(__name__)
@@ -99,3 +101,12 @@ def update_config_snapshots(source_pk=None):
             removed,
             errors,
         )
+
+        # Run outcomes (success/failure per device) when Oxidized's web API is
+        # configured; installs without it report through the exec hook instead.
+        if source.api_url:
+            try:
+                reported = pull_statuses(source)
+                logger.info("Source '%s': run status refreshed for %d devices.", source.name, reported)
+            except OxidizedAPIError as exc:
+                logger.warning("Source '%s': could not read run status from Oxidized: %s", source.name, exc)

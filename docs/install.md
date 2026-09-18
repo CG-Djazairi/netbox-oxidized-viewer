@@ -236,7 +236,40 @@ fall back to DNS for them.
 
 ---
 
-## 9. (Optional) Commit notes and on-demand sync
+## 9. Backup health: let Oxidized report every run (recommended)
+
+Oxidized commits only when a configuration **changes**. The age of a device's newest
+commit therefore says when it last changed, not when it was last backed up: a switch
+that is polled successfully every hour but never changes has an old commit. For real
+health the plugin needs Oxidized to report the outcome of each run. Two ways:
+
+**Exec hook (works everywhere, nothing to install).** Add to the Oxidized config:
+
+```yaml
+hooks:
+  netbox_status:
+    type: exec
+    events: [node_success, node_fail]
+    async: true
+    timeout: 20
+    cmd: '/usr/bin/curl -sk -m 15 -X POST -H "Authorization: Token <token>" --data-urlencode "event=$OX_EVENT" --data-urlencode "node=$OX_NODE_NAME" --data-urlencode "status=$OX_JOB_STATUS" --data-urlencode "err_type=$OX_ERR_TYPE" --data-urlencode "err_reason=$OX_ERR_REASON" https://<netbox>/api/plugins/oxidized-viewer/hook/'
+```
+
+The token's user needs the `netbox_oxidized_viewer.add_backupstatus` permission (object
+type *Oxidized Config Viewer > backup status*, action *add*) and the view permission on
+the devices. Oxidized runs hooks with a clean environment, so no proxy variable leaks in;
+use the absolute path to curl for the same reason.
+
+**nodes.json (when oxidized-web runs).** If the source has an API URL, the index job reads
+`<api url>/nodes.json` on every run and records each node's last outcome. No hook needed.
+
+With either in place the dashboard and the device card show, per device: *Up to date*
+(latest run succeeded within `stale_after_hours`), *Failing* (latest run failed, with
+Oxidized's reason), *Stale* (runs used to be reported and stopped) and *Never backed up*.
+Without any report, a device whose config changed recently is *Up to date* and the others
+are *Unverified*: unchanged or broken, the plugin cannot know.
+
+## 10. (Optional) Commit notes and on-demand sync
 
 Oxidized's auto-generated commit messages are generic. This plugin lets you attach
 a **note** to any commit explaining *why* the config changed. Notes are stored in

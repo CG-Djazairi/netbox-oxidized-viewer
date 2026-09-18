@@ -19,6 +19,8 @@ urlpatterns = [
     path('inventory/', views.OxidizedInventoryView.as_view(), name='inventory'),
     path('inventory/<slug:slug>/', views.OxidizedInventoryView.as_view(), name='inventory-scoped'),
     path('source/', views.OxidizedInventoryView.as_view(), name='source-inventory'),
+    # Run outcomes pushed by Oxidized's exec hook (node_success / node_fail)
+    path('hook/', views.OxidizedHookView.as_view(), name='hook'),
     # Read-only config access (same object-level RBAC as the UI).
     path('devices/<int:pk>/config/', views.DeviceConfigAPIView.as_view(), name='device-config'),
     path('devices/<int:pk>/history/', views.DeviceHistoryAPIView.as_view(), name='device-history'),

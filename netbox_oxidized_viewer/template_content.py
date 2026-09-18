@@ -6,11 +6,9 @@ All data comes from the denormalized ConfigSnapshot columns (one cheap query,
 no git access) — the OneToOne reverse accessor `device.oxidized_snapshot`.
 """
 
-import datetime
-
-from django.utils import timezone
 from netbox.plugins import PluginTemplateExtension, get_plugin_config
 
+from .health import compute_health
 from .utils import get_source
 
 
@@ -31,19 +29,15 @@ class DeviceBackupStatus(PluginTemplateExtension):
         snapshot = getattr(device, 'oxidized_snapshot', None)
 
         stale_after = get_plugin_config('netbox_oxidized_viewer', 'stale_after_hours') or 26
-        status = 'missing'
-        if snapshot:
-            status = 'ok'
-            if snapshot.commit_timestamp:
-                age = timezone.now() - snapshot.commit_timestamp
-                if age > datetime.timedelta(hours=stale_after):
-                    status = 'stale'
+        run_status = getattr(device, 'oxidized_backup_status', None)
+        status = compute_health(snapshot, run_status, stale_after)
 
         return self.render(
             'netbox_oxidized_viewer/inc/device_backup_card.html',
             extra_context={
                 'oxi_snapshot': snapshot,
                 'oxi_status': status,
+                'oxi_run': run_status,
                 'oxi_stale_after_hours': stale_after,
             },
         )

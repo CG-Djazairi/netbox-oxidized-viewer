@@ -18,31 +18,29 @@
     {% else %}
 
     {# Health summary #}
-    <div class="row mb-3">
-        <div class="col-sm-4">
-            <div class="card text-center">
-                <div class="card-body py-3">
-                    <h3 class="mb-0 text-success">{{ ok_count }}</h3>
-                    <small class="text-muted">Up to date</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-sm-4">
-            <div class="card text-center">
-                <div class="card-body py-3">
-                    <h3 class="mb-0 {% if stale_count %}text-warning{% else %}text-muted{% endif %}">{{ stale_count }}</h3>
-                    <small class="text-muted">Stale (&gt; {{ stale_after_hours }}h)</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-sm-4">
-            <div class="card text-center">
-                <div class="card-body py-3">
-                    <h3 class="mb-0 {% if missing_count %}text-danger{% else %}text-muted{% endif %}">{{ missing_count }}</h3>
-                    <small class="text-muted">Never backed up</small>
-                </div>
-            </div>
-        </div>
+    {% if not has_run_reports %}
+    <div class="alert alert-info">
+        Oxidized is not reporting run results to NetBox yet, so health is inferred from the age of the last
+        configuration <em>change</em>. A device that is backed up but never changes shows as <strong>Unverified</strong>.
+        Configure the Oxidized hook (install guide, &ldquo;Backup health&rdquo;) to get real success and failure status.
+    </div>
+    {% endif %}
+    <div class="row row-cols-2 row-cols-md-5 g-2 mb-3">
+        <div class="col"><div class="card text-center"><div class="card-body py-3">
+            <h3 class="mb-0 text-success">{{ ok_count }}</h3><small class="text-muted">Up to date</small>
+        </div></div></div>
+        <div class="col"><div class="card text-center"><div class="card-body py-3">
+            <h3 class="mb-0 {% if failing_count %}text-danger{% else %}text-muted{% endif %}">{{ failing_count }}</h3><small class="text-muted">Failing</small>
+        </div></div></div>
+        <div class="col"><div class="card text-center"><div class="card-body py-3">
+            <h3 class="mb-0 {% if stale_count %}text-warning{% else %}text-muted{% endif %}">{{ stale_count }}</h3><small class="text-muted">Stale (no run for &gt; {{ stale_after_hours }}h)</small>
+        </div></div></div>
+        <div class="col"><div class="card text-center"><div class="card-body py-3">
+            <h3 class="mb-0 text-muted">{{ unverified_count }}</h3><small class="text-muted">Unverified</small>
+        </div></div></div>
+        <div class="col"><div class="card text-center"><div class="card-body py-3">
+            <h3 class="mb-0 {% if missing_count %}text-danger{% else %}text-muted{% endif %}">{{ missing_count }}</h3><small class="text-muted">Never backed up</small>
+        </div></div></div>
     </div>
 
     {# Never-backed-up devices (collapsible; only in-scope devices) #}
@@ -58,13 +56,19 @@
         <div id="oxi-missing" class="collapse">
             <div class="card-body p-0">
                 <table class="table table-hover mb-0">
-                    <thead><tr><th>Device</th><th>Role</th><th>Expected filename</th></tr></thead>
+                    <thead><tr><th>Device</th><th>Role</th><th>Expected filename</th><th>Last run reported by Oxidized</th></tr></thead>
                     <tbody>
                         {% for row in missing %}
                         <tr>
                             <td><a href="{{ row.device.get_absolute_url }}">{{ row.device.name }}</a></td>
                             <td>{{ row.device.role|placeholder }}</td>
                             <td><code>{{ row.filename }}</code></td>
+                            <td>
+                                {% if row.status %}
+                                <span class="badge {% if row.status.last_status == 'success' %}text-bg-success{% else %}text-bg-danger{% endif %}">{{ row.status.last_status }}</span>
+                                {{ row.status.last_run|date:"Y-m-d H:i" }}{% if row.status.last_error %} &mdash; {{ row.status.last_error }}{% endif %}
+                                {% else %}<span class="text-muted">&mdash;</span>{% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -83,7 +87,9 @@
                     <tr>
                         <th>Device</th>
                         <th>Filename</th>
-                        <th>Latest Backup</th>
+                        <th>Health</th>
+                        <th>Last backup run</th>
+                        <th>Last change</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -93,9 +99,18 @@
                         <td><a href="{{ data.device.get_absolute_url }}">{{ data.device.name }}</a></td>
                         <td><code>{{ data.filename }}</code></td>
                         <td>
-                            {% if data.is_stale %}
-                            <span class="badge text-bg-warning me-1">Stale</span>
-                            {% endif %}
+                            {% if data.health == 'ok' %}<span class="badge text-bg-success">Up to date</span>
+                            {% elif data.health == 'failing' %}<span class="badge text-bg-danger">Failing</span>
+                            {% elif data.health == 'stale' %}<span class="badge text-bg-warning">Stale</span>
+                            {% else %}<span class="badge text-bg-secondary" title="No run reports from Oxidized and no change for more than {{ stale_after_hours }}h">Unverified</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if data.status %}
+                            {{ data.status.last_run|date:"Y-m-d H:i" }} <small class="text-muted">{{ data.status.last_status }}</small>
+                            {% if data.status.last_error %}<br><small class="text-danger">{{ data.status.last_error }}</small>{% endif %}
+                            {% else %}<span class="text-muted">not reported</span>{% endif %}
+                        </td>
+                        <td>
                             {{ data.commit_timestamp|placeholder }}
                             <br><small class="text-muted"><code>{{ data.commit_sha|slice:":7" }}</code> {{ data.commit_subject }}</small>
                         </td>
@@ -105,7 +120,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="4" class="text-center text-muted">
+                        <td colspan="6" class="text-center text-muted">
                             No indexed devices yet. The index refreshes on a schedule —
                             run <code>manage.py reindex_oxidized</code> to build it now.
                         </td>

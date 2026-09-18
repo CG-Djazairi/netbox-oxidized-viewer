@@ -1,6 +1,7 @@
 from dcim.models import Device
 from django.shortcuts import get_object_or_404
 from netbox.api.viewsets import NetBoxModelViewSet
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
@@ -8,6 +9,7 @@ from rest_framework.routers import APIRootView
 from rest_framework.views import APIView
 
 from .. import filters
+from ..health import find_device_for_node, record_run
 from ..inventory import build_inventory
 from ..models import ConfigCommitNote, OxidizedInventory, OxidizedSource
 from ..services.git_backend import GitBackendError
@@ -37,6 +39,7 @@ class OxidizedAPIRootView(APIRootView):
                 'devices/{pk}/diff/{sha_old}/{sha_new}': f'{root}devices/{{pk}}/diff/{{sha_old}}/{{sha_new}}/',
                 'devices/{pk}/commits/{sha}/note': f'{root}devices/{{pk}}/commits/{{sha}}/note/',
                 'devices/{pk}/sync': f'{root}devices/{{pk}}/sync/',
+                'hook': reverse(f'{namespace}:hook', request=request),
             }
         )
         for slug in OxidizedInventory.objects.filter(enabled=True).values_list('slug', flat=True):
@@ -85,6 +88,48 @@ class CanViewDevices(BasePermission):
 
     def has_permission(self, request, view):
         return request.user.has_perm('dcim.view_device')
+
+
+class OxidizedHookView(APIView):
+    """
+    POST - Oxidized reports the outcome of a run (exec hook on node_success and
+    node_fail). Body (form or JSON): event, node, and for failures status,
+    err_type, err_reason. Requires the netbox_oxidized_viewer.add_backupstatus
+    permission; the node must be a device the token's user may view.
+    """
+
+    permission_classes = [IsAuthenticated]
+    # curl --data-urlencode is the only quoting-safe way to pass Oxidized's error
+    # text from a shell hook; NetBox's API accepts JSON and multipart only by default.
+    parser_classes = [JSONParser, FormParser, MultiPartParser]
+    EVENTS = ('node_success', 'node_fail')
+
+    def post(self, request):
+        if not request.user.has_perm('netbox_oxidized_viewer.add_backupstatus'):
+            return Response({'detail': 'Requires the netbox_oxidized_viewer.add_backupstatus permission.'}, status=403)
+        source = get_source()
+        if not source:
+            return Response({'detail': 'No Oxidized source configured.'}, status=400)
+
+        event = str(request.data.get('event') or '').strip()
+        node = str(request.data.get('node') or '').strip()
+        if event not in self.EVENTS or not node:
+            return Response({'detail': f'event must be one of {self.EVENTS} and node is required.'}, status=400)
+
+        device = find_device_for_node(source, node, Device.objects.restrict(request.user, 'view'))
+        if device is None:
+            return Response({'detail': f'No device matches node "{node}".'}, status=404)
+
+        if event == 'node_success':
+            status, error = 'success', ''
+        else:
+            status = str(request.data.get('status') or '').strip() or 'fail'
+            if status == 'success':
+                status = 'fail'
+            parts = [str(request.data.get(key) or '').strip() for key in ('err_type', 'err_reason')]
+            error = ': '.join(part for part in parts if part)
+        record_run(device, status, error=error)
+        return Response({'device': device.name, 'status': status}, status=201)
 
 
 class OxidizedInventoryView(APIView):
