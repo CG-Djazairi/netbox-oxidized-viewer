@@ -291,9 +291,10 @@ curl -s -X POST -H "Authorization: Token $TOKEN" -H "Content-Type: application/j
   https://netbox.example.com/api/plugins/oxidized-viewer/devices/42/commits/<sha>/note/
 ```
 
-Adding notes requires the `netbox_oxidized_viewer.add_configcommitnote` permission
-(plus view permission on the device). Triggering a sync requires the **change**
-permission on the device, since it makes Oxidized act.
+Adding notes requires the `netbox_oxidized_viewer.add_configcommitnote` permission.
+Triggering a sync requires the **change** permission on the device, since it makes
+Oxidized act. Both also need what reading a configuration needs, see
+[Permissions](#permissions).
 
 To enable the **Sync now** button / `sync/` endpoint, set the source's **API URL**
 to your Oxidized web endpoint (e.g. `http://oxidized:8888`). The plugin calls
@@ -303,6 +304,36 @@ to your Oxidized web endpoint (e.g. `http://oxidized:8888`). The plugin calls
 > the Oxidized web port is network-restricted (firewall / internal network). Leaving
 > it blank disables the sync feature entirely; history, diff, search, and notes all
 > continue to work from git alone.
+
+---
+
+## Permissions
+
+NetBox has no permission that covers a whole plugin: permissions are per object type.
+Create them under **Admin → Permissions**, object types *Oxidized Config Viewer > …*.
+Superusers bypass all of them, so test with a normal account.
+
+| To… | Object type | Action |
+|---|---|---|
+| Read configurations: dashboard, search, the device's **Config History** tab and **Config Backup** card, diffs, downloads, the `devices/<id>/…` API | *config snapshot* | view |
+| Add a commit note | *config commit note* | add (plus the row above) |
+| Trigger a sync | *DCIM > device* | change (plus the first row) |
+| Manage the source and the named inventories (**Oxidized → Admin** menu) | *oxidized source*, *oxidized inventory* | view / add / change / delete |
+| Oxidized pulling its inventory (`inventory/`) | *DCIM > device* | view |
+| Oxidized reporting its runs (`hook/`) | *backup status* | add (plus view on devices) |
+
+Reading configurations always needs **both** *view* on *config snapshot* and *view* on the
+device itself. Which devices a user sees is decided by the device permission: constrain
+that one (by site, tenant, role, …) to limit a team to its own equipment. Constraints set
+on the *config snapshot* permission are not evaluated, it is an on/off switch.
+
+Without the *config snapshot* permission a user sees no **Oxidized → Configs** menu, no
+**Config History** tab and no **Config Backup** card, and the pages and API endpoints
+answer 403. The token Oxidized uses needs none of it.
+
+> **Upgrading from 0.1.7 or earlier:** reading configurations used to need only *view* on
+> the device. After the upgrade, grant *view* on *config snapshot* to every user, group
+> and API token (automation pulling configs) that must keep that access.
 
 ---
 

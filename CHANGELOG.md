@@ -6,6 +6,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-09-21
+
+### Changed
+- **Reading configurations now needs a plugin permission.** Until now any user who
+  could view a device saw its configuration, and the *Oxidized → Configs* menu was shown
+  to every logged-in user: removing a user's plugin permissions only hid the Sources and
+  Inventories pages. The dashboard, the search, the device *Config History* tab and
+  *Config Backup* card, diffs, downloads, commit notes, sync and the `devices/<id>/…` API
+  now require `netbox_oxidized_viewer.view_configsnapshot` in addition to view on the
+  device; without it the menu entries, the tab and the card are hidden and the URLs
+  answer 403. The inventory and hook endpoints used by Oxidized are unchanged.
+  **After upgrading, grant *view* on *Oxidized Config Viewer > config snapshot* to the
+  users, groups and API tokens that read configurations.** No migration.
+
 ## [0.1.7] - 2026-09-18
 
 ### Fixed

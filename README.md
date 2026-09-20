@@ -2,7 +2,7 @@
 
 A NetBox plugin that surfaces [Oxidized](https://github.com/ytti/oxidized) configuration backups inside NetBox — with full history, side-by-side diffs, full-text search, and NetBox's native RBAC.
 
-Oxidized has no authentication. This plugin gates config access behind NetBox's existing object permissions: if a user can view a device, they can see its config history.
+Oxidized has no authentication. This plugin gates config access behind NetBox's object permissions: a user sees a device's configuration when they can view that device **and** hold the plugin's *view config snapshot* permission. See [Permissions](docs/install.md#permissions).
 
 ## Features
 
@@ -14,7 +14,7 @@ Oxidized has no authentication. This plugin gates config access behind NetBox's 
 - **On-demand sync** (optional) — trigger an immediate Oxidized backup for a device from NetBox or the API, for a "change → resync → annotate" automation loop. Requires an Oxidized API URL on the source.
 - **Backup scope** — limit which devices are Oxidized's responsibility by role, platform, or tag, so passive gear/servers/etc. are excluded from the exported node list *and* from the "never backed up" report.
 - **Backup health** — Oxidized reports each run (exec hook or `nodes.json`), so the dashboard and the device card show real status: up to date, failing with Oxidized's error, stale when runs stop, and active in-scope devices that were never backed up. Commit age alone only says when a config last changed.
-- **REST API** — read a device's config, history, and diffs via NetBox tokens with the same object-level RBAC as the UI.
+- **REST API** — read a device's config, history, and diffs via NetBox tokens with the same permissions and object-level RBAC as the UI.
 - **Named inventories** — one endpoint per Oxidized instance (`inventory/<slug>/`), each scoped by site, role, platform or tag, so several instances in different zones can share one repository while polling only their own devices.
 - **Inventory endpoint** — `GET /api/plugins/oxidized-viewer/inventory/` returns the device list in Oxidized's HTTP source format (NetBox platform as the driver name, primary IPv4 or any custom field as the address), so Oxidized can pull its node list directly from NetBox.
 - **Read-only toward git** — the plugin never writes to the Oxidized git repo. (Commit notes live in NetBox; the optional sync only asks Oxidized to poll.)

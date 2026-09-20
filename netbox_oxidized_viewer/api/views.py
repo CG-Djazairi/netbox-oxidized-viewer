@@ -12,6 +12,7 @@ from .. import filters
 from ..health import find_device_for_node, record_run
 from ..inventory import build_inventory
 from ..models import ConfigCommitNote, OxidizedInventory, OxidizedSource
+from ..permissions import CONFIG_VIEW_PERMISSION
 from ..services.git_backend import GitBackendError
 from ..utils import (
     get_backend_and_filename_for_device,
@@ -90,6 +91,20 @@ class CanViewDevices(BasePermission):
         return request.user.has_perm('dcim.view_device')
 
 
+class CanViewConfigs(BasePermission):
+    """
+    The per-device endpoints serve configuration data: they need the plugin's
+    own permission on top of view on the device (checked per object through
+    Device.objects.restrict()). Deliberately not on the inventory or the hook,
+    which Oxidized's token uses without any right to read configs.
+    """
+
+    message = f'This endpoint requires the {CONFIG_VIEW_PERMISSION} permission.'
+
+    def has_permission(self, request, view):
+        return request.user.has_perm(CONFIG_VIEW_PERMISSION)
+
+
 class OxidizedHookView(APIView):
     """
     POST - Oxidized reports the outcome of a run (exec hook on node_success and
@@ -161,7 +176,7 @@ class OxidizedInventoryView(APIView):
 
 
 class _DeviceGitAPIView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CanViewConfigs]
 
     def _resolve(self, request, pk):
         """(backend, filename) for an RBAC-restricted device, or None."""
@@ -268,7 +283,7 @@ class DeviceCommitNoteAPIView(APIView):
     Notes live in NetBox, not git.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CanViewConfigs]
 
     def _device(self, request, pk):
         return get_object_or_404(Device.objects.restrict(request.user, 'view'), pk=pk)
@@ -301,7 +316,7 @@ class DeviceSyncAPIView(APIView):
     """POST — trigger an on-demand Oxidized backup for a device (needs the
     source's api_url). Read-only toward git."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CanViewConfigs]
 
     def post(self, request, pk):
         # Triggering a backup is a write on an external system: require the

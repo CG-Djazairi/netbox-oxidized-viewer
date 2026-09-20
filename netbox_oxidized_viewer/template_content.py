@@ -9,6 +9,7 @@ no git access) — the OneToOne reverse accessor `device.oxidized_snapshot`.
 from netbox.plugins import PluginTemplateExtension, get_plugin_config
 
 from .health import compute_health
+from .permissions import CONFIG_VIEW_PERMISSION
 from .utils import get_source
 
 
@@ -22,6 +23,11 @@ class DeviceBackupStatus(PluginTemplateExtension):
 
         device = self.context.get('object')
         if device is None:
+            return ''
+
+        # The card shows commit metadata: same permission as the Config History tab.
+        request = self.context.get('request')
+        if request is None or not request.user.has_perm(CONFIG_VIEW_PERMISSION):
             return ''
 
         # Reverse OneToOne raises a DoesNotExist that subclasses AttributeError,

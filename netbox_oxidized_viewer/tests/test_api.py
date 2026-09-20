@@ -22,7 +22,7 @@ from netbox_oxidized_viewer.api.views import (
     DeviceSyncAPIView,
     OxidizedInventoryView,
 )
-from netbox_oxidized_viewer.models import ConfigCommitNote, OxidizedSource
+from netbox_oxidized_viewer.models import ConfigCommitNote, ConfigSnapshot, OxidizedSource
 
 from .test_tasks import _build_repo
 
@@ -50,6 +50,11 @@ def _grant_device_view(user, constraints=None):
     return perm
 
 
+def _grant_config_view(user):
+    """The plugin's own "may read configurations" permission (view_configsnapshot)."""
+    return _grant(user, ConfigSnapshot, ['view'])
+
+
 class TestOxidizedInventoryView(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -74,6 +79,11 @@ class TestOxidizedInventoryView(TestCase):
     def test_requires_device_view_permission(self):
         response = self._get(user=self.unprivileged)
         self.assertEqual(response.status_code, 403)
+
+    def test_inventory_does_not_need_the_config_permission(self):
+        # Oxidized's token lists devices; it has no business reading configs.
+        self.assertFalse(self.user.has_perm('netbox_oxidized_viewer.view_configsnapshot'))
+        self.assertEqual(self._get(user=self.user).status_code, 200)
 
     def test_constrained_permission_limits_inventory(self):
         # A token scoped to a subset of devices must only export that subset.
@@ -231,6 +241,15 @@ class TestDeviceConfigAPI(TestCase):
     def setUpTestData(cls):
         cls.superuser = get_user_model().objects.create_superuser('cfg-admin')
         cls.plain_user = get_user_model().objects.create_user('cfg-nobody')
+        # The plugin permission alone: no device is visible -> 404.
+        cls.config_only = get_user_model().objects.create_user('cfg-config-only')
+        _grant_config_view(cls.config_only)
+        # Device view alone: not allowed to read configs -> 403.
+        cls.device_only = get_user_model().objects.create_user('cfg-device-only')
+        _grant_device_view(cls.device_only)
+        cls.reader = get_user_model().objects.create_user('cfg-reader')
+        _grant_device_view(cls.reader)
+        _grant_config_view(cls.reader)
         cls.site = Site.objects.create(name='Site', slug='site')
         manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
         cls.device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
@@ -275,7 +294,16 @@ class TestDeviceConfigAPI(TestCase):
 
     def test_config_denied_without_permission(self):
         resp = self._get(DeviceConfigAPIView, self.plain_user, pk=self.device.pk)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_config_needs_both_permissions(self):
+        resp = self._get(DeviceConfigAPIView, self.device_only, pk=self.device.pk)
+        self.assertEqual(resp.status_code, 403)
+        resp = self._get(DeviceConfigAPIView, self.config_only, pk=self.device.pk)
         self.assertEqual(resp.status_code, 404)
+        resp = self._get(DeviceConfigAPIView, self.reader, pk=self.device.pk)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('disable', resp.data['content'])
 
     def test_history(self):
         resp = self._get(DeviceHistoryAPIView, self.superuser, pk=self.device.pk)
@@ -284,7 +312,9 @@ class TestDeviceConfigAPI(TestCase):
         self.assertEqual(shas, [self.sha2, self.sha1])
 
     def test_history_denied_without_permission(self):
-        resp = self._get(DeviceHistoryAPIView, self.plain_user, pk=self.device.pk)
+        resp = self._get(DeviceHistoryAPIView, self.device_only, pk=self.device.pk)
+        self.assertEqual(resp.status_code, 403)
+        resp = self._get(DeviceHistoryAPIView, self.config_only, pk=self.device.pk)
         self.assertEqual(resp.status_code, 404)
 
     def test_diff(self):
@@ -302,14 +332,15 @@ class TestDeviceConfigAPI(TestCase):
         self.assertIn('+', markers)
 
     def test_diff_denied_without_permission(self):
-        resp = self._get(
-            DeviceDiffAPIView,
-            self.plain_user,
-            pk=self.device.pk,
-            sha_old=self.sha1,
-            sha_new=self.sha2,
-        )
-        self.assertEqual(resp.status_code, 404)
+        for user, expected in ((self.device_only, 403), (self.config_only, 404)):
+            resp = self._get(
+                DeviceDiffAPIView,
+                user,
+                pk=self.device.pk,
+                sha_old=self.sha1,
+                sha_new=self.sha2,
+            )
+            self.assertEqual(resp.status_code, expected)
 
 
 class TestCommitNoteAPI(TestCase):
@@ -330,10 +361,16 @@ class TestCommitNoteAPI(TestCase):
         # Device view but no add permission.
         cls.viewer = get_user_model().objects.create_user('note-viewer')
         _grant(cls.viewer, Device, ['view'])
+        _grant_config_view(cls.viewer)
         # Device view + note-add (the automation-token path).
         cls.author = get_user_model().objects.create_user('note-author')
         _grant(cls.author, Device, ['view'])
+        _grant_config_view(cls.author)
         _grant(cls.author, ConfigCommitNote, ['add'])
+        # Device view + add note, but not allowed to read configs.
+        cls.no_config = get_user_model().objects.create_user('note-no-config')
+        _grant(cls.no_config, Device, ['view'])
+        _grant(cls.no_config, ConfigCommitNote, ['add'])
 
     def _post(self, user, message):
         request = APIRequestFactory().post('/', {'message': message}, format='json')
@@ -355,8 +392,16 @@ class TestCommitNoteAPI(TestCase):
         self.assertEqual(resp.data[0]['message'], 'hi')
 
     def test_denied_without_device_view(self):
-        resp = self._post(self.plain_user, 'x')
+        config_only = get_user_model().objects.create_user('note-config-only')
+        _grant_config_view(config_only)
+        resp = self._post(config_only, 'x')
         self.assertEqual(resp.status_code, 404)
+        self.assertFalse(ConfigCommitNote.objects.exists())
+
+    def test_denied_without_config_permission(self):
+        for user in (self.plain_user, self.no_config):
+            resp = self._post(user, 'x')
+            self.assertEqual(resp.status_code, 403)
         self.assertFalse(ConfigCommitNote.objects.exists())
 
     def test_denied_without_add_permission(self):
@@ -407,14 +452,24 @@ class TestDeviceSyncAPI(TestCase):
         OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo', api_url='http://oxi:8888')
         viewer = get_user_model().objects.create_user('sync-viewer')
         _grant_device_view(viewer)
+        _grant_config_view(viewer)
         request = APIRequestFactory().post('/')
         force_authenticate(request, user=viewer)
         resp = DeviceSyncAPIView.as_view()(request, pk=self.device.pk)
         self.assertEqual(resp.status_code, 404)
         mock_trigger.assert_not_called()
 
+        # Change on the device without the plugin permission: still refused.
         changer = get_user_model().objects.create_user('sync-changer')
         _grant(changer, Device, ['view', 'change'])
+        request = APIRequestFactory().post('/')
+        force_authenticate(request, user=changer)
+        resp = DeviceSyncAPIView.as_view()(request, pk=self.device.pk)
+        self.assertEqual(resp.status_code, 403)
+        mock_trigger.assert_not_called()
+
+        _grant_config_view(changer)
+        changer = get_user_model().objects.get(pk=changer.pk)  # drop the cached permissions
         request = APIRequestFactory().post('/')
         force_authenticate(request, user=changer)
         resp = DeviceSyncAPIView.as_view()(request, pk=self.device.pk)

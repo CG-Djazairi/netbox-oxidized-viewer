@@ -20,6 +20,7 @@ from utilities.views import ViewTab, register_model_view
 
 from . import filters, forms, health, models, tables
 from .inventory import build_inventory
+from .permissions import CONFIG_VIEW_PERMISSION, ConfigViewPermissionMixin
 from .services.git_backend import CommitNotFound, FileNotFoundAtCommit, GitBackendError
 from .utils import (
     get_backend_and_filename_for_device,
@@ -91,7 +92,7 @@ def _hunks_to_side_by_side(hunks):
     return result
 
 
-class DashboardView(LoginRequiredMixin, TemplateView):
+class DashboardView(LoginRequiredMixin, ConfigViewPermissionMixin, TemplateView):
     template_name = 'netbox_oxidized_viewer/dashboard.html'
 
     def get_context_data(self, **kwargs):
@@ -267,10 +268,12 @@ class SourceReindexView(LoginRequiredMixin, View):
 
 
 @register_model_view(Device, name='oxidized_config', path='config')
-class DeviceConfigView(generic.ObjectView):
+class DeviceConfigView(ConfigViewPermissionMixin, generic.ObjectView):
     queryset = Device.objects.all()
     template_name = 'netbox_oxidized_viewer/device_config_tab.html'
-    tab = ViewTab(label='Config History', permission='dcim.view_device', weight=500)
+    # The tab needs the plugin permission; the view itself also needs view on the
+    # device (generic.ObjectView) - hiding a tab does not protect its URL.
+    tab = ViewTab(label='Config History', permission=CONFIG_VIEW_PERMISSION, weight=500)
 
     def get_extra_context(self, request, instance):
         backend, filename = get_backend_and_filename_for_device(instance)
@@ -319,7 +322,7 @@ class DeviceConfigView(generic.ObjectView):
         }
 
 
-class ConfigDiffView(generic.ObjectView):
+class ConfigDiffView(ConfigViewPermissionMixin, generic.ObjectView):
     queryset = Device.objects.all()
     template_name = 'netbox_oxidized_viewer/diff.html'
 
@@ -378,9 +381,10 @@ class ConfigDiffView(generic.ObjectView):
 # The download views are plain Django Views (no NetBox generic-view mixins), so
 # object-level RBAC does not come for free: each lookup must go through
 # .restrict() or a user could fetch any device's config by guessing PKs.
+# ConfigViewPermissionMixin adds the plugin's own permission on top.
 
 
-class DeviceConfigDownloadView(View):
+class DeviceConfigDownloadView(ConfigViewPermissionMixin, View):
     def get(self, request, pk):
         backend, filename = _device_backend_or_404(request, pk)
         latest = backend.get_latest_commit(filename)
@@ -393,7 +397,7 @@ class DeviceConfigDownloadView(View):
         return _config_attachment(content, f'{filename}.txt')
 
 
-class CommitConfigDownloadView(View):
+class CommitConfigDownloadView(ConfigViewPermissionMixin, View):
     def get(self, request, pk, sha):
         backend, filename = _device_backend_or_404(request, pk)
         try:
@@ -403,7 +407,7 @@ class CommitConfigDownloadView(View):
         return _config_attachment(content, f'{filename}-{sha[:7]}.txt')
 
 
-class DiffDownloadView(View):
+class DiffDownloadView(ConfigViewPermissionMixin, View):
     def get(self, request, pk, sha_old, sha_new):
         backend, filename = _device_backend_or_404(request, pk)
         try:
@@ -425,7 +429,7 @@ class DiffDownloadView(View):
         )
 
 
-class ConfigSearchView(LoginRequiredMixin, TemplateView):
+class ConfigSearchView(LoginRequiredMixin, ConfigViewPermissionMixin, TemplateView):
     template_name = 'netbox_oxidized_viewer/search.html'
 
     # Rows rendered per page.
@@ -556,7 +560,7 @@ class ConfigSearchView(LoginRequiredMixin, TemplateView):
         return results, paginator.count, page_obj
 
 
-class ConfigCompareRedirectView(View):
+class ConfigCompareRedirectView(ConfigViewPermissionMixin, View):
     def get(self, request, pk):
         sha_old = request.GET.get('sha_old', '').strip()
         sha_new = request.GET.get('sha_new', '').strip()
@@ -567,7 +571,7 @@ class ConfigCompareRedirectView(View):
         return redirect('plugins:netbox_oxidized_viewer:device_oxidized_config', pk=pk)
 
 
-class AddCommitNoteView(LoginRequiredMixin, View):
+class AddCommitNoteView(LoginRequiredMixin, ConfigViewPermissionMixin, View):
     """Attach a note to a commit. Stored in NetBox (see ConfigCommitNote) — the
     git repo is never written to. POST-only."""
 
@@ -589,7 +593,7 @@ class AddCommitNoteView(LoginRequiredMixin, View):
         return redirect('plugins:netbox_oxidized_viewer:device_commit', pk=device.pk, sha_new=sha)
 
 
-class DeviceSyncView(LoginRequiredMixin, View):
+class DeviceSyncView(LoginRequiredMixin, ConfigViewPermissionMixin, View):
     """Trigger an on-demand Oxidized backup for a device (optional; requires the
     source's api_url). Read-only toward git — it just asks Oxidized to poll."""
 

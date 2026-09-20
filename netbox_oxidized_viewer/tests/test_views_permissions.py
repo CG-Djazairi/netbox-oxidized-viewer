@@ -33,6 +33,20 @@ from netbox_oxidized_viewer.views import (
 from .test_tasks import _build_repo
 
 
+def _grant(user, model, actions, constraints=None):
+    from core.models import ObjectType
+    from users.models import ObjectPermission
+
+    perm = ObjectPermission.objects.create(
+        name=f'{"-".join(actions)}-{model.__name__}-{user.username}',
+        actions=actions,
+        constraints=constraints,
+    )
+    perm.users.add(user)
+    perm.object_types.add(ObjectType.objects.get_for_model(model))
+    return perm
+
+
 class TestDownloadViewPermissions(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -43,6 +57,15 @@ class TestDownloadViewPermissions(TestCase):
         cls.device = Device.objects.create(name='spine1', site=site, device_type=device_type, role=role)
         cls.superuser = get_user_model().objects.create_superuser('dl-admin')
         cls.plain_user = get_user_model().objects.create_user('dl-nobody')
+        # The plugin permission without view on the device: object-level RBAC -> 404.
+        cls.config_only = get_user_model().objects.create_user('dl-config-only')
+        _grant(cls.config_only, ConfigSnapshot, ['view'])
+        # View on the device without the plugin permission -> 403.
+        cls.device_only = get_user_model().objects.create_user('dl-device-only')
+        _grant(cls.device_only, Device, ['view'])
+        cls.reader = get_user_model().objects.create_user('dl-reader')
+        _grant(cls.reader, Device, ['view'])
+        _grant(cls.reader, ConfigSnapshot, ['view'])
 
     def setUp(self):
         self.repo_path = tempfile.mkdtemp()
@@ -77,7 +100,22 @@ class TestDownloadViewPermissions(TestCase):
 
     def test_config_download_denied_without_view_permission(self):
         with self.assertRaises(Http404):
-            self._get(DeviceConfigDownloadView, self.plain_user, pk=self.device.pk)
+            self._get(DeviceConfigDownloadView, self.config_only, pk=self.device.pk)
+
+    def test_config_download_denied_without_config_permission(self):
+        for user in (self.plain_user, self.device_only):
+            with self.assertRaises(PermissionDenied):
+                self._get(DeviceConfigDownloadView, user, pk=self.device.pk)
+
+    def test_config_download_allowed_with_both_permissions(self):
+        response = self._get(DeviceConfigDownloadView, self.reader, pk=self.device.pk)
+        self.assertEqual(response.status_code, 200)
+
+    def test_anonymous_is_sent_to_login(self):
+        from django.contrib.auth.models import AnonymousUser
+
+        response = self._get(DeviceConfigDownloadView, AnonymousUser(), pk=self.device.pk)
+        self.assertEqual(response.status_code, 302)
 
     # --- historical commit ---
 
@@ -88,7 +126,9 @@ class TestDownloadViewPermissions(TestCase):
 
     def test_commit_download_denied_without_view_permission(self):
         with self.assertRaises(Http404):
-            self._get(CommitConfigDownloadView, self.plain_user, pk=self.device.pk, sha=self.sha1)
+            self._get(CommitConfigDownloadView, self.config_only, pk=self.device.pk, sha=self.sha1)
+        with self.assertRaises(PermissionDenied):
+            self._get(CommitConfigDownloadView, self.device_only, pk=self.device.pk, sha=self.sha1)
 
     # --- diff patch ---
 
@@ -104,14 +144,15 @@ class TestDownloadViewPermissions(TestCase):
         self.assertIn(b'-set / interface ethernet-1/1 admin-state enable', response.content)
 
     def test_diff_download_denied_without_view_permission(self):
-        with self.assertRaises(Http404):
-            self._get(
-                DiffDownloadView,
-                self.plain_user,
-                pk=self.device.pk,
-                sha_old=self.sha1,
-                sha_new=self.sha2,
-            )
+        for user, expected in ((self.config_only, Http404), (self.device_only, PermissionDenied)):
+            with self.assertRaises(expected):
+                self._get(
+                    DiffDownloadView,
+                    user,
+                    pk=self.device.pk,
+                    sha_old=self.sha1,
+                    sha_new=self.sha2,
+                )
 
 
 class TestDashboardView(TestCase):
@@ -356,11 +397,16 @@ class TestAddCommitNoteView(TestCase):
         )
         cls.sha = 'a' * 40
         cls.superuser = get_user_model().objects.create_superuser('note-ui-admin')
-        # Device view but no add permission → reaches the perm check and is denied.
+        # Device + config view but no add permission → reaches the perm check and is denied.
         cls.viewer = get_user_model().objects.create_user('note-ui-viewer')
         perm = ObjectPermission.objects.create(name='view dev', actions=['view'])
         perm.object_types.add(ObjectType.objects.get_for_model(Device))
         perm.users.add(cls.viewer)
+        _grant(cls.viewer, ConfigSnapshot, ['view'])
+        # May add notes and view the device, but not read configs.
+        cls.no_config = get_user_model().objects.create_user('note-ui-no-config')
+        _grant(cls.no_config, Device, ['view'])
+        _grant(cls.no_config, ConfigCommitNote, ['add'])
 
     def test_superuser_adds_note_and_redirects(self):
         request = _request_with_messages(user=self.superuser, data={'message': 'reason for change'})
@@ -372,6 +418,12 @@ class TestAddCommitNoteView(TestCase):
 
     def test_viewer_without_add_perm_denied(self):
         request = _request_with_messages(user=self.viewer, data={'message': 'x'})
+        with self.assertRaises(PermissionDenied):
+            AddCommitNoteView.as_view()(request, pk=self.device.pk, sha=self.sha)
+        self.assertFalse(ConfigCommitNote.objects.exists())
+
+    def test_denied_without_config_permission(self):
+        request = _request_with_messages(user=self.no_config, data={'message': 'x'})
         with self.assertRaises(PermissionDenied):
             AddCommitNoteView.as_view()(request, pk=self.device.pk, sha=self.sha)
         self.assertFalse(ConfigCommitNote.objects.exists())
@@ -416,7 +468,88 @@ class TestDeviceSyncView(TestCase):
         perm = ObjectPermission.objects.create(name='view dev only', actions=['view'])
         perm.object_types.add(ObjectType.objects.get_for_model(Device))
         perm.users.add(viewer)
+        _grant(viewer, ConfigSnapshot, ['view'])
         request = _request_with_messages(user=viewer)
         with self.assertRaises(Http404):
             DeviceSyncView.as_view()(request, pk=self.device.pk)
         mock_trigger.assert_not_called()
+
+    @mock.patch('netbox_oxidized_viewer.services.oxidized_api.trigger_backup')
+    def test_sync_denied_without_config_permission(self, mock_trigger):
+        OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo', api_url='http://oxi:8888')
+        changer = get_user_model().objects.create_user('sync-ui-changer')
+        _grant(changer, Device, ['view', 'change'])
+        request = _request_with_messages(user=changer)
+        with self.assertRaises(PermissionDenied):
+            DeviceSyncView.as_view()(request, pk=self.device.pk)
+        mock_trigger.assert_not_called()
+
+
+class TestConfigViewPermissionEndToEnd(TestCase):
+    """
+    Through the URLconf and the real templates: a user who can view a device but
+    lacks the plugin's view_configsnapshot permission gets no configuration data
+    anywhere - pages answer 403, and the device page shows neither the tab nor
+    the backup card.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name='Site', slug='site')
+        manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
+        role = DeviceRole.objects.create(name='Router', slug='router')
+        cls.device = Device.objects.create(name='spine1', site=site, device_type=device_type, role=role)
+        cls.source = OxidizedSource.objects.create(name='E2E', git_repo_path='/tmp/does-not-exist-e2e')
+        ConfigSnapshot.objects.create(
+            device=cls.device,
+            source=cls.source,
+            content='hostname spine1\nsnmp community s3cret\n',
+            commit_sha='a' * 40,
+            commit_timestamp=datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC),
+            commit_subject='e2e-backup-subject',
+        )
+        cls.device_only = get_user_model().objects.create_user('e2e-device-only')
+        _grant(cls.device_only, Device, ['view'])
+        cls.reader = get_user_model().objects.create_user('e2e-reader')
+        _grant(cls.reader, Device, ['view'])
+        _grant(cls.reader, ConfigSnapshot, ['view'])
+
+    def _urls(self):
+        from django.urls import reverse
+
+        ns = 'plugins:netbox_oxidized_viewer'
+        pk = self.device.pk
+        return [
+            reverse(f'{ns}:dashboard'),
+            reverse(f'{ns}:config_search') + '?q=snmp',
+            reverse(f'{ns}:device_oxidized_config', kwargs={'pk': pk}),
+            reverse('dcim:device_oxidized_config', kwargs={'pk': pk}),
+            reverse(f'{ns}:device_commit', kwargs={'pk': pk, 'sha_new': 'a' * 40}),
+            reverse(f'{ns}:device_compare', kwargs={'pk': pk}),
+            reverse(f'{ns}:device_config_download', kwargs={'pk': pk}),
+        ]
+
+    def test_device_viewer_without_plugin_permission_gets_403_everywhere(self):
+        self.client.force_login(self.device_only)
+        for url in self._urls():
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+
+    def test_device_page_hides_tab_and_card_without_plugin_permission(self):
+        self.client.force_login(self.device_only)
+        response = self.client.get(self.device.get_absolute_url())
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Config History')
+        self.assertNotContains(response, 'e2e-backup-subject')
+
+    def test_reader_sees_pages_tab_and_card(self):
+        self.client.force_login(self.reader)
+        response = self.client.get(self.device.get_absolute_url())
+        self.assertContains(response, 'Config History')
+        self.assertContains(response, 'e2e-backup-subject')
+        urls = self._urls()
+        self.assertContains(self.client.get(urls[0]), 'spine1')
+        self.assertContains(self.client.get(urls[1]), 'spine1')
+        # The tab renders (with its "no repository" message: this source has no git).
+        self.assertEqual(self.client.get(urls[2]).status_code, 200)

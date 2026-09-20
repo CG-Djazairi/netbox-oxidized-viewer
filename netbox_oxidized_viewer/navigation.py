@@ -1,5 +1,7 @@
 from netbox.plugins import PluginMenu, PluginMenuItem
 
+from .permissions import CONFIG_VIEW_PERMISSION
+
 menu = PluginMenu(
     label='Oxidized',
     groups=(
@@ -9,10 +11,12 @@ menu = PluginMenu(
                 PluginMenuItem(
                     link='plugins:netbox_oxidized_viewer:dashboard',
                     link_text='Dashboard',
+                    permissions=[CONFIG_VIEW_PERMISSION],
                 ),
                 PluginMenuItem(
                     link='plugins:netbox_oxidized_viewer:config_search',
                     link_text='Search Configs',
+                    permissions=[CONFIG_VIEW_PERMISSION],
                 ),
             ),
         ),
