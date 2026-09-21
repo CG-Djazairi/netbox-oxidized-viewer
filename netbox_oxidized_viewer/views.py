@@ -114,6 +114,9 @@ class DashboardView(LoginRequiredMixin, ConfigViewPermissionMixin, TemplateView)
             has_run_reports = bool(statuses)
             snapshots = (
                 models.ConfigSnapshot.objects.filter(source=source, device__in=viewable)
+                # Only names, dates and commit ids are shown: leave the config body
+                # and its tsvector in the database (hundreds of MB at fleet scale).
+                .defer('content', 'search_vector')
                 .select_related('device')
                 # NULLS LAST: rows indexed before the metadata backfill would
                 # otherwise sort to the top of a "newest first" list.

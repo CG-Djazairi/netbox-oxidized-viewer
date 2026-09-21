@@ -9,6 +9,7 @@ no git access) — the OneToOne reverse accessor `device.oxidized_snapshot`.
 from netbox.plugins import PluginTemplateExtension, get_plugin_config
 
 from .health import compute_health
+from .models import ConfigSnapshot
 from .permissions import CONFIG_VIEW_PERMISSION
 from .utils import get_source
 
@@ -30,9 +31,9 @@ class DeviceBackupStatus(PluginTemplateExtension):
         if request is None or not request.user.has_perm(CONFIG_VIEW_PERMISSION):
             return ''
 
-        # Reverse OneToOne raises a DoesNotExist that subclasses AttributeError,
-        # so getattr(..., None) is the idiomatic "may be absent" access.
-        snapshot = getattr(device, 'oxidized_snapshot', None)
+        # The card shows a date and a commit id: do not load the configuration
+        # body (device.oxidized_snapshot would fetch the full row on every device page).
+        snapshot = ConfigSnapshot.objects.filter(device=device).defer('content', 'search_vector').first()
 
         stale_after = get_plugin_config('netbox_oxidized_viewer', 'stale_after_hours') or 26
         run_status = getattr(device, 'oxidized_backup_status', None)

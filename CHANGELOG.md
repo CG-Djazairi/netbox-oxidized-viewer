@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-09-21
+
+### Fixed
+- The dashboard and the device *Config Backup* card loaded every snapshot row in
+  full, configuration text and search vector included, to display names, dates
+  and commit ids. Both now leave those columns in the database: at fleet scale
+  the dashboard was pulling hundreds of megabytes per page load.
+
 ## [0.1.8] - 2026-09-21
 
 ### Changed

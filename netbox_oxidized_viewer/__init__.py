@@ -5,7 +5,7 @@ class OxidizedViewerConfig(PluginConfig):
     name = 'netbox_oxidized_viewer'
     verbose_name = 'Oxidized Config Viewer'
     description = 'View Oxidized configuration backups with diff, history, and search'
-    version = '0.1.8'
+    version = '0.1.9'
     base_url = 'oxidized-viewer'
     min_version = '4.3.0'
 
