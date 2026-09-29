@@ -67,7 +67,7 @@ class GitBackendTestCase(unittest.TestCase):
             [],
             b'Test Author <test@example.com>',
             b'Initial commit\n\nAdded file1.txt',
-            datetime.datetime(2023, 1, 1, 12, 0, tzinfo=datetime.UTC),
+            datetime.datetime(2023, 1, 1, 12, 0, tzinfo=datetime.timezone.utc),
         )
         repo.refs[b'refs/heads/master'] = c1.id
 
@@ -78,7 +78,7 @@ class GitBackendTestCase(unittest.TestCase):
             [c1.id],
             b'Test Author <test@example.com>',
             b'Second commit\n\nModified file1.txt',
-            datetime.datetime(2023, 1, 2, 12, 0, tzinfo=datetime.UTC),
+            datetime.datetime(2023, 1, 2, 12, 0, tzinfo=datetime.timezone.utc),
         )
         repo.refs[b'refs/heads/master'] = c2.id
 
@@ -89,7 +89,7 @@ class GitBackendTestCase(unittest.TestCase):
             [c2.id],
             b'Other Author <other@example.com>',
             b'Third commit\n\nDeleted file1.txt, added file2.txt',
-            datetime.datetime(2023, 1, 3, 12, 0, tzinfo=datetime.UTC),
+            datetime.datetime(2023, 1, 3, 12, 0, tzinfo=datetime.timezone.utc),
         )
         repo.refs[b'refs/heads/master'] = c3.id
         repo.refs[b'HEAD'] = c3.id
@@ -188,7 +188,9 @@ class GitBackendTestCase(unittest.TestCase):
             ],
         )
         head = repo[repo.head()]
-        c_a = _commit(repo, t_a, [head.id], b'A <a@x>', b'add both', datetime.datetime(2023, 2, 1, tzinfo=datetime.UTC))
+        c_a = _commit(
+            repo, t_a, [head.id], b'A <a@x>', b'add both', datetime.datetime(2023, 2, 1, tzinfo=datetime.timezone.utc)
+        )
         repo.refs[b'refs/heads/master'] = c_a.id
         t_b = _tree(
             repo,
@@ -198,7 +200,12 @@ class GitBackendTestCase(unittest.TestCase):
             ],
         )
         c_b = _commit(
-            repo, t_b, [c_a.id], b'A <a@x>', b'change churn', datetime.datetime(2023, 3, 1, tzinfo=datetime.UTC)
+            repo,
+            t_b,
+            [c_a.id],
+            b'A <a@x>',
+            b'change churn',
+            datetime.datetime(2023, 3, 1, tzinfo=datetime.timezone.utc),
         )
         repo.refs[b'refs/heads/master'] = c_b.id
         repo.refs[b'HEAD'] = c_b.id
@@ -219,13 +226,95 @@ class GitBackendTestCase(unittest.TestCase):
             [head.id],
             b'A <a@x>',
             b'latin1',
-            datetime.datetime(2023, 1, 4, 12, 0, tzinfo=datetime.UTC),
+            datetime.datetime(2023, 1, 4, 12, 0, tzinfo=datetime.timezone.utc),
         )
         repo.refs[b'refs/heads/master'] = c.id
         repo.refs[b'HEAD'] = c.id
         backend = GitBackend(self.temp_dir)
         content = backend.get_file_content('latin1.cfg', c.id.decode('ascii'))
         self.assertIn('hostname r', content)  # decoded with errors='replace'
+
+
+class DiffEdgeCasesTestCase(unittest.TestCase):
+    """get_diff() on content that looks like diff syntax, on empty files and
+    across file creation/deletion."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.temp_dir, ignore_errors=True)
+        self.repo = Repo.init(self.temp_dir)
+        self.head = None
+        self.day = 0
+
+    def _commit_files(self, files):
+        """files: {name_bytes: content_bytes}. Returns the new commit's hex SHA."""
+        self.day += 1
+        tree = _tree(self.repo, [(name, Blob.from_string(data)) for name, data in files.items()])
+        parents = [self.head.id] if self.head else []
+        when = datetime.datetime(2024, 1, self.day, tzinfo=datetime.timezone.utc)
+        commit = _commit(self.repo, tree, parents, b'Oxidized <ox@x>', b'backup', when)
+        self.repo.refs[b'refs/heads/master'] = commit.id
+        self.repo.refs[b'HEAD'] = commit.id
+        self.head = commit
+        return commit.id.decode('ascii')
+
+    @staticmethod
+    def _lines(diff):
+        return [line for hunk in diff.hunks for line in hunk.lines]
+
+    def test_lines_starting_with_diff_markers_are_kept(self):
+        # A removed line starting with '--' (or an added one with '++') looks
+        # like a unified-diff file header by prefix; only the two real headers
+        # may be skipped.
+        c1 = self._commit_files({b'sw': b'-- old banner\nhostname sw\n'})
+        c2 = self._commit_files({b'sw': b'++ new banner\nhostname sw\n'})
+        lines = self._lines(GitBackend(self.temp_dir).get_diff('sw', c1, c2))
+        self.assertIn(('-', '-- old banner'), lines)
+        self.assertIn(('+', '++ new banner'), lines)
+        self.assertIn((' ', 'hostname sw'), lines)
+
+    def test_hunk_counts_match_hunk_content(self):
+        c1 = self._commit_files({b'sw': b'a\n-- b\nc\n'})
+        c2 = self._commit_files({b'sw': b'a\n++ b\nc\n'})
+        diff = GitBackend(self.temp_dir).get_diff('sw', c1, c2)
+        self.assertEqual(len(diff.hunks), 1)
+        hunk = diff.hunks[0]
+        old_side = [line for marker, line in hunk.lines if marker in (' ', '-')]
+        new_side = [line for marker, line in hunk.lines if marker in (' ', '+')]
+        self.assertEqual(len(old_side), hunk.old_lines)
+        self.assertEqual(len(new_side), hunk.new_lines)
+        self.assertEqual(old_side, ['a', '-- b', 'c'])
+        self.assertEqual(new_side, ['a', '++ b', 'c'])
+
+    def test_two_empty_files_is_an_empty_diff_not_a_missing_file(self):
+        c1 = self._commit_files({b'sw': b''})
+        c2 = self._commit_files({b'sw': b'', b'other': b'x\n'})
+        diff = GitBackend(self.temp_dir).get_diff('sw', c1, c2)
+        self.assertEqual(diff.hunks, [])
+        self.assertTrue(diff.old_exists)
+        self.assertTrue(diff.new_exists)
+
+    def test_creation_and_deletion_set_the_existence_flags(self):
+        c1 = self._commit_files({b'other': b'x\n'})
+        c2 = self._commit_files({b'other': b'x\n', b'sw': b'hostname sw\n'})
+        c3 = self._commit_files({b'other': b'x\n'})
+        backend = GitBackend(self.temp_dir)
+
+        created = backend.get_diff('sw', c1, c2)
+        self.assertEqual((created.old_exists, created.new_exists), (False, True))
+        self.assertIn(('+', 'hostname sw'), self._lines(created))
+
+        deleted = backend.get_diff('sw', c2, c3)
+        self.assertEqual((deleted.old_exists, deleted.new_exists), (True, False))
+        self.assertIn(('-', 'hostname sw'), self._lines(deleted))
+
+        with self.assertRaises(FileNotFoundAtCommit):
+            backend.get_diff('sw', c1, c3)
+
+    def test_unchanged_file_has_no_hunks(self):
+        c1 = self._commit_files({b'sw': b'hostname sw\n', b'other': b'1\n'})
+        c2 = self._commit_files({b'sw': b'hostname sw\n', b'other': b'2\n'})
+        self.assertEqual(GitBackend(self.temp_dir).get_diff('sw', c1, c2).hunks, [])
 
 
 class EmptyRepoTestCase(unittest.TestCase):

@@ -109,7 +109,8 @@ PLUGINS_CONFIG = {
 docker exec netbox-docker-netbox-1 python manage.py migrate netbox_oxidized_viewer
 ```
 
-This creates the plugin's two tables (`OxidizedSource` and `ConfigSnapshot`) and a GIN index on the `search_vector` column. `ConfigSnapshot.search_vector` is a Postgres **STORED generated column** (`to_tsvector('simple', content)`), so the full-text index is maintained by the database itself and can never drift from the config content.
+This creates the plugin's tables (`OxidizedSource`, `OxidizedInventory`,
+`ConfigSnapshot`, `ConfigCommitNote`, and `BackupStatus`) and a GIN index on the `search_vector` column. `ConfigSnapshot.search_vector` is a Postgres **STORED generated column** (`to_tsvector('simple', content)`), so the full-text index is maintained by the database itself and can never drift from the config content.
 
 Then collect the plugin's static assets (the bundled Prism.js syntax highlighter):
 
@@ -252,13 +253,22 @@ hooks:
     events: [node_success, node_fail]
     async: true
     timeout: 20
-    cmd: '/usr/bin/curl -sk -m 15 -X POST -H "Authorization: Token <token>" --data-urlencode "event=$OX_EVENT" --data-urlencode "node=$OX_NODE_NAME" --data-urlencode "status=$OX_JOB_STATUS" --data-urlencode "err_type=$OX_ERR_TYPE" --data-urlencode "err_reason=$OX_ERR_REASON" https://<netbox>/api/plugins/oxidized-viewer/hook/'
+    cmd: '/usr/bin/curl -sS --fail-with-body -m 15 -X POST -H "Authorization: Token <token>" --data-urlencode "event=$OX_EVENT" --data-urlencode "node=$OX_NODE_NAME" --data-urlencode "status=$OX_JOB_STATUS" --data-urlencode "err_type=$OX_ERR_TYPE" --data-urlencode "err_reason=$OX_ERR_REASON" https://<netbox>/api/plugins/oxidized-viewer/hook/'
 ```
 
 The token's user needs the `netbox_oxidized_viewer.add_backupstatus` permission (object
 type *Oxidized Config Viewer > backup status*, action *add*) and the view permission on
-the devices. Oxidized runs hooks with a clean environment, so no proxy variable leaks in;
-use the absolute path to curl for the same reason.
+the devices, and the token itself must be **write enabled** (reporting a run is a write).
+Oxidized runs hooks with a clean environment, so no proxy variable leaks in; use the
+absolute path to curl for the same reason.
+
+The request carries the API token, so the Oxidized host must verify NetBox's certificate.
+Never add `-k` / `--insecure`: an attacker on the path could then read the token and forge
+run reports. With an internal CA, either install it in the Oxidized host's trust store or
+add `--cacert /path/to/internal-ca.pem` to the command. `--fail-with-body` makes a rejected
+request (403 on a read-only token, 404 on an unknown node) exit non-zero and print
+NetBox's reason, so the failure shows in Oxidized's log instead of vanishing (needs
+curl 7.76+; on older versions use `--fail`).
 
 **nodes.json (when oxidized-web runs).** If the source has an API URL, the index job reads
 `<api url>/nodes.json` on every run and records each node's last outcome. No hook needed.
@@ -322,6 +332,12 @@ Superusers bypass all of them, so test with a normal account.
 | Oxidized pulling its inventory (`inventory/`) | *DCIM > device* | view |
 | Oxidized reporting its runs (`hook/`) | *backup status* | add (plus view on devices) |
 
+API tokens have their own **write enabled** flag, on top of the user's permissions: a
+token without it can read configurations, history and notes but is refused (403) on the
+`hook/`, `note/` and `sync/` endpoints. Give Oxidized's hook token and automation that
+adds notes or triggers syncs a write-enabled token; keep read-only tokens for everything
+else.
+
 Reading configurations always needs **both** *view* on *config snapshot* and *view* on the
 device itself. Which devices a user sees is decided by the device permission: constrain
 that one (by site, tenant, role, …) to limit a team to its own equipment. Constraints set
@@ -335,7 +351,42 @@ answer 403. The token Oxidized uses needs none of it.
 > the device. After the upgrade, grant *view* on *config snapshot* to every user, group
 > and API token (automation pulling configs) that must keep that access.
 
+### Which file a device shows: the node name is the only link
+
+The plugin has no persistent binding between a device and a file in the repository.
+On every read it takes the device's node name (the source's *node name source*: the
+device name by default, or a serial, asset tag or custom field), and serves the file
+with that name from the flat repository. Oxidized uses the same name to write it,
+which is what makes the mapping work, and also what limits it:
+
+- NetBox device names are unique per site and tenant, not globally. Two devices with
+  the same node name (or the same value in the chosen custom field) resolve to the same
+  file. A user allowed to view only one of them sees that one file, whichever equipment
+  actually produced it.
+- Anyone who can edit the field used as node name (rename a device, edit the custom
+  field) can point a device at another device's file.
+- A node name reused after the original device was removed shows the old device's
+  history under the new one.
+
+Keep the node-name field unique across the fleet, which Oxidized needs anyway, and give
+*change* on devices only to people who may see every configuration in the repository.
+Device permissions scope the inventory a user sees; they are not a confidentiality
+boundary between teams that share one repository.
+
 ---
+
+## What the index does and does not tell you
+
+- **The worker must see the repository.** Indexing runs in the RQ worker, so the git
+  repository must be mounted in the worker container as well as in NetBox. A missing or
+  unreadable repository is logged and skipped, and the job still finishes as *completed*:
+  search would then keep serving the last indexed content. If search looks stale, check
+  the worker log and the mount first.
+- **Three timestamps mean three things.** A snapshot's commit time is when the
+  configuration last changed. *Last run* on the backup status is Oxidized's latest report.
+  *Indexed at* is when the snapshot row was last written; unchanged rows are not rewritten.
+- **Freshness.** Search follows the indexing schedule (60 minutes by default); the device
+  tab, diffs and downloads read git directly, with results cached for up to five minutes.
 
 ## Verifying the installation
 

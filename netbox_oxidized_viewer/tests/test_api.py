@@ -3,6 +3,8 @@ Tests for the Oxidized inventory API endpoint (OxidizedInventoryView), which
 returns the active-device list in Oxidized's HTTP source format.
 """
 
+import json
+import secrets
 import shutil
 import tempfile
 from unittest import mock
@@ -15,6 +17,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from users.models import ObjectPermission
 
 from netbox_oxidized_viewer.api.views import (
+    NOTE_MAX_LENGTH,
     DeviceCommitNoteAPIView,
     DeviceConfigAPIView,
     DeviceDiffAPIView,
@@ -22,7 +25,7 @@ from netbox_oxidized_viewer.api.views import (
     DeviceSyncAPIView,
     OxidizedInventoryView,
 )
-from netbox_oxidized_viewer.models import ConfigCommitNote, ConfigSnapshot, OxidizedSource
+from netbox_oxidized_viewer.models import BackupStatus, ConfigCommitNote, ConfigSnapshot, OxidizedSource
 
 from .test_tasks import _build_repo
 
@@ -53,6 +56,26 @@ def _grant_device_view(user, constraints=None):
 def _grant_config_view(user):
     """The plugin's own "may read configurations" permission (view_configsnapshot)."""
     return _grant(user, ConfigSnapshot, ['view'])
+
+
+def _token_auth(user, write_enabled):
+    """Create a real NetBox API token for `user` and return its Authorization header.
+
+    NetBox 4.5 introduced v2 tokens (`Bearer <key>.<secret>`) and moved the v1
+    value into `plaintext`; 4.3 stores it in `key`. A v1 token is created on
+    both so the same `Token <value>` header authenticates everywhere.
+    """
+    from users.models import Token
+
+    plaintext = secrets.token_hex(20)
+    token = Token(user=user, write_enabled=write_enabled)
+    if hasattr(Token, 'version'):
+        token.version = 1
+        token.token = plaintext
+    else:
+        token.key = plaintext
+    token.save()
+    return f'Token {plaintext}'
 
 
 class TestOxidizedInventoryView(TestCase):
@@ -413,6 +436,26 @@ class TestCommitNoteAPI(TestCase):
         resp = self._post(self.superuser, '   ')
         self.assertEqual(resp.status_code, 400)
 
+    def test_non_string_message_rejected(self):
+        # A note is text: numbers and structured values are client bugs, not
+        # something to coerce. Used to raise AttributeError (500) on .strip().
+        for bad in (123, 1.5, True, {'text': 'x'}, ['x']):
+            resp = self._post(self.superuser, bad)
+            self.assertEqual(resp.status_code, 400, bad)
+        self.assertFalse(ConfigCommitNote.objects.exists())
+
+    def test_message_length_is_bounded(self):
+        resp = self._post(self.superuser, 'x' * (NOTE_MAX_LENGTH + 1))
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(ConfigCommitNote.objects.exists())
+        resp = self._post(self.superuser, 'x' * NOTE_MAX_LENGTH)
+        self.assertEqual(resp.status_code, 201)
+
+    def test_message_is_trimmed(self):
+        resp = self._post(self.superuser, '  keep me  ')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(ConfigCommitNote.objects.get().message, 'keep me')
+
 
 class TestDeviceSyncAPI(TestCase):
     @classmethod
@@ -529,3 +572,97 @@ class TestInventoryIpField(TestCase):
         entries = self._get()
         self.assertEqual(entries['spine1']['ip'], '192.0.2.10')
         self.assertEqual(entries['leaf1']['ip'], '')
+
+
+class TestTokenWriteRestriction(TestCase):
+    """
+    A read-only API token (write_enabled=False) must not write through the
+    plugin's custom endpoints, whatever its user may do. NetBox enforces the
+    flag in its default TokenPermissions class, which a view that sets its own
+    permission_classes loses. Exercised over HTTP with real tokens, the way
+    Oxidized's hook and automation clients call these endpoints. The user is a
+    superuser so that only the token flag can be the reason for a refusal.
+    """
+
+    HOOK = '/api/plugins/oxidized-viewer/hook/'
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name='Site', slug='site')
+        manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
+        role = DeviceRole.objects.create(name='Router', slug='router')
+        cls.device = Device.objects.create(
+            name='spine1', site=site, device_type=device_type, role=role, status='active'
+        )
+        OxidizedSource.objects.create(name='Lab', git_repo_path='/tmp/repo', api_url='http://oxi:8888')
+        cls.admin = get_user_model().objects.create_superuser('token-admin')
+        cls.read_only = _token_auth(cls.admin, write_enabled=False)
+        cls.read_write = _token_auth(cls.admin, write_enabled=True)
+        cls.note_url = f'/api/plugins/oxidized-viewer/devices/{cls.device.pk}/commits/{"a" * 40}/note/'
+        cls.sync_url = f'/api/plugins/oxidized-viewer/devices/{cls.device.pk}/sync/'
+
+    def test_read_only_token_cannot_report_a_run(self):
+        payload = {'event': 'node_success', 'node': 'spine1'}
+        resp = self.client.post(self.HOOK, payload, HTTP_AUTHORIZATION=self.read_only)
+        self.assertEqual(resp.status_code, 403, resp.content[:300])
+        self.assertFalse(BackupStatus.objects.exists())
+
+        resp = self.client.post(self.HOOK, payload, HTTP_AUTHORIZATION=self.read_write)
+        self.assertEqual(resp.status_code, 201, resp.content[:300])
+        self.assertTrue(BackupStatus.objects.filter(device=self.device).exists())
+
+    def test_read_only_token_cannot_add_a_note(self):
+        body = json.dumps({'message': 'CHG-1: bump MTU'})
+        resp = self.client.post(self.note_url, body, content_type='application/json', HTTP_AUTHORIZATION=self.read_only)
+        self.assertEqual(resp.status_code, 403, resp.content[:300])
+        self.assertFalse(ConfigCommitNote.objects.exists())
+
+        resp = self.client.post(
+            self.note_url, body, content_type='application/json', HTTP_AUTHORIZATION=self.read_write
+        )
+        self.assertEqual(resp.status_code, 201, resp.content[:300])
+        self.assertEqual(ConfigCommitNote.objects.count(), 1)
+
+    @mock.patch('netbox_oxidized_viewer.services.oxidized_api.trigger_backup')
+    def test_read_only_token_cannot_trigger_a_sync(self, mock_trigger):
+        resp = self.client.post(self.sync_url, HTTP_AUTHORIZATION=self.read_only)
+        self.assertEqual(resp.status_code, 403, resp.content[:300])
+        mock_trigger.assert_not_called()
+
+        resp = self.client.post(self.sync_url, HTTP_AUTHORIZATION=self.read_write)
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        mock_trigger.assert_called_once_with('http://oxi:8888', 'spine1')
+
+    def test_read_only_token_still_reads(self):
+        ConfigCommitNote.objects.create(device=self.device, commit_sha='a' * 40, message='hi')
+        resp = self.client.get(self.note_url, HTTP_AUTHORIZATION=self.read_only)
+        self.assertEqual(resp.status_code, 200, resp.content[:300])
+        self.assertEqual(resp.json()[0]['message'], 'hi')
+
+    def test_session_login_is_unaffected(self):
+        # No token on a browser session: the flag does not apply.
+        self.client.force_login(self.admin)
+        resp = self.client.post(self.HOOK, {'event': 'node_success', 'node': 'spine1'})
+        self.assertEqual(resp.status_code, 201, resp.content[:300])
+
+
+class TestShaUrls(TestCase):
+    """Commit SHAs in URLs must be full 40-character ids: the git layer looks
+    objects up by exact id, so an abbreviated SHA could only ever fail later."""
+
+    @classmethod
+    def setUpTestData(cls):
+        site = Site.objects.create(name='Site', slug='site')
+        manufacturer = Manufacturer.objects.create(name='Nokia', slug='nokia')
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='SR Linux', slug='sr-linux')
+        role = DeviceRole.objects.create(name='Router', slug='router')
+        cls.device = Device.objects.create(name='spine1', site=site, device_type=device_type, role=role)
+        cls.admin = get_user_model().objects.create_superuser('sha-admin')
+
+    def test_abbreviated_sha_does_not_route(self):
+        self.client.force_login(self.admin)
+        base = f'/api/plugins/oxidized-viewer/devices/{self.device.pk}/commits/'
+        self.assertEqual(self.client.get(base + 'a' * 7 + '/note/').status_code, 404)
+        self.assertEqual(self.client.get(base + 'a' * 39 + '/note/').status_code, 404)
+        self.assertEqual(self.client.get(base + 'a' * 40 + '/note/').status_code, 200)

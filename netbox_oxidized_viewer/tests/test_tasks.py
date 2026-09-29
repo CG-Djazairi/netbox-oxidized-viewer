@@ -34,7 +34,7 @@ def _build_repo(path, files, parent=None, when=(2024, 1, 1)):
         # dulwich expects parent SHAs as bytes, not the decoded hex string.
         commit.parents = [parent.encode('ascii') if isinstance(parent, str) else parent]
     commit.author = commit.committer = b'Oxidized <oxidized@example.com>'
-    ts = int(datetime.datetime(*when, tzinfo=datetime.UTC).timestamp())
+    ts = int(datetime.datetime(*when, tzinfo=datetime.timezone.utc).timestamp())
     commit.commit_time = commit.author_time = ts
     commit.commit_timezone = commit.author_timezone = 0
     commit.encoding = b'UTF-8'
@@ -82,7 +82,7 @@ class TestUpdateConfigSnapshots(TestCase):
         self.assertEqual(snap.commit_subject, 'backup')
         self.assertEqual(
             snap.commit_timestamp,
-            datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC),
+            datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
         )
 
     def test_backfills_metadata_for_pre_0006_rows(self):

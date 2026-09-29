@@ -7,7 +7,7 @@ from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, F
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect
 from django.utils.html import escape
 from django.utils.http import content_disposition_header
@@ -19,6 +19,8 @@ from netbox.views import generic
 from utilities.views import ViewTab, register_model_view
 
 from . import filters, forms, health, models, tables
+from .constants import NOTE_MAX_LENGTH
+from .converters import normalize_sha
 from .inventory import build_inventory
 from .permissions import CONFIG_VIEW_PERMISSION, ConfigViewPermissionMixin
 from .services.git_backend import CommitNotFound, FileNotFoundAtCommit, GitBackendError
@@ -257,9 +259,11 @@ class SourceReindexView(LoginRequiredMixin, View):
     logs show up in the core Jobs UI. POST-only (it mutates the index)."""
 
     def post(self, request, pk):
-        source = get_object_or_404(models.OxidizedSource.objects.all(), pk=pk)
         if not request.user.has_perm('netbox_oxidized_viewer.change_oxidizedsource'):
             raise PermissionDenied
+        # Object-level: a change permission constrained to other sources must not
+        # be enough to reindex this one.
+        source = get_object_or_404(models.OxidizedSource.objects.restrict(request.user, 'change'), pk=pk)
         from .jobs import ConfigSnapshotIndexJob
 
         job = ConfigSnapshotIndexJob.enqueue(instance=source, user=request.user)
@@ -377,6 +381,7 @@ class ConfigDiffView(ConfigViewPermissionMixin, generic.ObjectView):
             'error': error,
             'notes': notes,
             'can_add_note': request.user.has_perm('netbox_oxidized_viewer.add_configcommitnote'),
+            'note_max_length': NOTE_MAX_LENGTH,
             'active_tab': 'oxidized_config',
         }
 
@@ -418,12 +423,21 @@ class DiffDownloadView(ConfigViewPermissionMixin, View):
         except GitBackendError as exc:
             raise Http404 from exc
 
-        lines = [f'--- a/{filename}', f'+++ b/{filename}']
+        lines = []
+        if diff_data.hunks:
+            old_path = f'a/{filename}' if diff_data.old_exists else '/dev/null'
+            new_path = f'b/{filename}' if diff_data.new_exists else '/dev/null'
+            lines = [f'--- {old_path}', f'+++ {new_path}']
+        elif diff_data.old_exists != diff_data.new_exists:
+            # A zero-byte creation/deletion has no text hunk. Git's mode header
+            # carries that change; headers alone would be an invalid patch.
+            mode = 'new file' if diff_data.new_exists else 'deleted file'
+            lines = [f'diff --git a/{filename} b/{filename}', f'{mode} mode 100644']
         for hunk in diff_data.hunks:
             lines.append(f'@@ -{hunk.old_start},{hunk.old_lines} +{hunk.new_start},{hunk.new_lines} @@')
             for marker, content in hunk.lines:
                 lines.append(f'{marker}{content}')
-        patch_text = '\n'.join(lines) + '\n'
+        patch_text = '\n'.join(lines) + '\n' if lines else ''
 
         return _config_attachment(
             patch_text,
@@ -567,6 +581,11 @@ class ConfigCompareRedirectView(ConfigViewPermissionMixin, View):
     def get(self, request, pk):
         sha_old = request.GET.get('sha_old', '').strip()
         sha_new = request.GET.get('sha_new', '').strip()
+        try:
+            sha_old = normalize_sha(sha_old) if sha_old else ''
+            sha_new = normalize_sha(sha_new) if sha_new else ''
+        except ValueError as exc:
+            return HttpResponseBadRequest(str(exc))
         if sha_old and sha_new and sha_old != sha_new:
             return redirect('plugins:netbox_oxidized_viewer:device_diff', pk=pk, sha_old=sha_old, sha_new=sha_new)
         elif sha_new:
@@ -582,17 +601,17 @@ class AddCommitNoteView(LoginRequiredMixin, ConfigViewPermissionMixin, View):
         device = get_object_or_404(Device.objects.restrict(request.user, 'view'), pk=pk)
         if not request.user.has_perm('netbox_oxidized_viewer.add_configcommitnote'):
             raise PermissionDenied
-        message = request.POST.get('message', '').strip()
-        if message:
+        form = forms.CommitNoteForm(request.POST)
+        if form.is_valid():
             models.ConfigCommitNote.objects.create(
                 device=device,
                 commit_sha=sha,
-                message=message,
+                message=form.cleaned_data['message'],
                 created_by=request.user,
             )
             messages.success(request, 'Note added.')
         else:
-            messages.warning(request, 'Note was empty — nothing saved.')
+            messages.warning(request, ' '.join(form.errors['message']))
         return redirect('plugins:netbox_oxidized_viewer:device_commit', pk=device.pk, sha_new=sha)
 
 

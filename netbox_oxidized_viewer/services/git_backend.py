@@ -87,6 +87,10 @@ class FileDiff:
     new_sha: str
     filename: str
     hunks: list[DiffHunk]
+    # Whether the file exists at each commit. An existing but empty file is not
+    # a missing one: both flags stay True for a diff between two empty files.
+    old_exists: bool = True
+    new_exists: bool = True
 
 
 # --- Backend Class ---
@@ -127,7 +131,7 @@ class GitBackend:
         # Dulwich commit.commit_time is a Unix timestamp
         # timezone offset is in commit.commit_timezone (seconds west of UTC)
         # We'll use UTC for consistency
-        dt = datetime.datetime.fromtimestamp(commit.commit_time, tz=datetime.UTC)
+        dt = datetime.datetime.fromtimestamp(commit.commit_time, tz=datetime.timezone.utc)
 
         return CommitMeta(
             sha=commit.id.decode('ascii'),
@@ -310,8 +314,9 @@ class GitBackend:
         Handles file creation (missing at sha_old) and deletion (missing at sha_new).
         Raises CommitNotFound or FileNotFoundAtCommit as appropriate.
         """
-        old_content: list[str] = []
-        new_content: list[str] = []
+        # None means "no such file at that commit"; an empty file is an empty list.
+        old_content: list[str] | None = None
+        new_content: list[str] | None = None
 
         try:
             old_content = self.get_file_content(filename, sha_old).splitlines()
@@ -323,8 +328,11 @@ class GitBackend:
         except FileNotFoundAtCommit:
             pass  # file deleted in sha_new
 
-        if not old_content and not new_content:
+        if old_content is None and new_content is None:
             raise FileNotFoundAtCommit(f"File '{filename}' not found at either commit {sha_old} or {sha_new}")
+        old_exists, new_exists = old_content is not None, new_content is not None
+        old_content = old_content or []
+        new_content = new_content or []
 
         raw_lines = list(
             difflib.unified_diff(
@@ -339,9 +347,11 @@ class GitBackend:
         hunks: list[DiffHunk] = []
         current_hunk: DiffHunk | None = None
 
-        for line in raw_lines:
-            if line.startswith('---') or line.startswith('+++'):
-                continue
+        # unified_diff emits exactly two file headers ('--- a/x', '+++ b/x')
+        # before the first hunk, or nothing at all when the sides are equal.
+        # Skip them by position: a removed line whose content starts with
+        # '--' (or an added one starting with '++') looks the same by prefix.
+        for line in raw_lines[2:]:
             if line.startswith('@@'):
                 if current_hunk:
                     hunks.append(current_hunk)
@@ -363,4 +373,11 @@ class GitBackend:
         if current_hunk:
             hunks.append(current_hunk)
 
-        return FileDiff(old_sha=sha_old, new_sha=sha_new, filename=filename, hunks=hunks)
+        return FileDiff(
+            old_sha=sha_old,
+            new_sha=sha_new,
+            filename=filename,
+            hunks=hunks,
+            old_exists=old_exists,
+            new_exists=new_exists,
+        )

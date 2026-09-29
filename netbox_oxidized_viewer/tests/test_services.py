@@ -107,3 +107,24 @@ class TestOxidizedTrigger(SimpleTestCase):
         mock_get.side_effect = requests.exceptions.ConnectionError('boom')
         with self.assertRaises(OxidizedAPIError):
             trigger_backup('http://oxi:8888', 'sw1')
+
+
+@override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class TestDiffCacheUpgrade(SimpleTestCase):
+    def test_pre_upgrade_diff_is_not_reused(self):
+        from netbox_oxidized_viewer.services.git_backend import FileDiff
+
+        backend = mock.Mock(repo_path='/upgrade-repo')
+        wrapper = CachedGitBackend(backend)
+        old = FileDiff('a' * 40, 'b' * 40, 'sw', [])
+        # Simulate a pickled pre-0.1.10 value: existence fields were absent,
+        # so class defaults incorrectly suggest both sides existed.
+        del old.old_exists
+        del old.new_exists
+        legacy_key = wrapper._cache_key('file_diff', backend.repo_path, 'sw', old.old_sha, old.new_sha)
+        cache.set(legacy_key, old, timeout=300)
+        self.addCleanup(cache.delete, legacy_key)
+        backend.get_diff.return_value = FileDiff(old.old_sha, old.new_sha, 'sw', [], old_exists=False)
+        result = wrapper.get_diff('sw', old.old_sha, old.new_sha)
+        self.assertFalse(result.old_exists)
+        backend.get_diff.assert_called_once()

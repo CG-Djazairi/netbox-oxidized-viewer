@@ -13,6 +13,7 @@ import datetime
 import logging
 
 from dcim.models import Device
+from django.db import transaction
 from django.utils import timezone
 
 from .models import BackupStatus
@@ -62,9 +63,14 @@ def find_device_for_node(source, node, queryset):
     return None
 
 
+@transaction.atomic
 def record_run(device, status, when=None, error=''):
     """Store the outcome of a run. Older reports never overwrite newer ones."""
     when = when or timezone.now()
+    # Lock a row that exists even before the first BackupStatus is created.
+    # The timestamp check and upsert must share this lock: update_or_create's
+    # own lock starts too late to protect a preceding, unlocked timestamp read.
+    Device.objects.select_for_update().get(pk=device.pk)
     existing = BackupStatus.objects.filter(device=device).first()
     if existing and existing.last_run > when:
         return existing
@@ -86,7 +92,7 @@ def _parse_oxidized_time(value):
         parsed = datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S %Z')
     except (TypeError, ValueError):
         return None
-    return parsed.replace(tzinfo=datetime.UTC)
+    return parsed.replace(tzinfo=datetime.timezone.utc)
 
 
 def pull_statuses(source):

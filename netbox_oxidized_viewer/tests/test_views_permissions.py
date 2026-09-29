@@ -180,7 +180,7 @@ class TestDashboardView(TestCase):
                 source=cls.source,
                 content=f'hostname {name}\n',
                 commit_sha=str(i) * 40,
-                commit_timestamp=datetime.datetime(2024, 1, 1 + i, tzinfo=datetime.UTC),
+                commit_timestamp=datetime.datetime(2024, 1, 1 + i, tzinfo=datetime.timezone.utc),
                 commit_subject=f'backup {name}',
             )
 
@@ -370,6 +370,25 @@ class TestSourceReindexView(TestCase):
             self._post(self.plain_user)
         mock_enqueue.assert_not_called()
 
+    @mock.patch('netbox_oxidized_viewer.jobs.ConfigSnapshotIndexJob.enqueue')
+    def test_change_permission_constrained_to_another_source_denied(self, mock_enqueue):
+        # has_perm() alone says a change permission exists *somewhere*; the
+        # requested source must satisfy the permission's constraints too.
+        user = get_user_model().objects.create_user('reindex-elsewhere')
+        _grant(user, OxidizedSource, ['change'], constraints={'name': 'some other source'})
+        with self.assertRaises(Http404):
+            self._post(user)
+        mock_enqueue.assert_not_called()
+
+    @mock.patch('netbox_oxidized_viewer.jobs.ConfigSnapshotIndexJob.enqueue')
+    def test_change_permission_matching_the_source_allowed(self, mock_enqueue):
+        mock_enqueue.return_value = mock.Mock(pk=7)
+        user = get_user_model().objects.create_user('reindex-here')
+        _grant(user, OxidizedSource, ['change'], constraints={'name': 'Reindex'})
+        response = self._post(user)
+        self.assertEqual(response.status_code, 302)
+        mock_enqueue.assert_called_once()
+
 
 def _request_with_messages(method='post', user=None, data=None):
     from django.contrib.messages.storage.fallback import FallbackStorage
@@ -506,7 +525,7 @@ class TestConfigViewPermissionEndToEnd(TestCase):
             source=cls.source,
             content='hostname spine1\nsnmp community s3cret\n',
             commit_sha='a' * 40,
-            commit_timestamp=datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC),
+            commit_timestamp=datetime.datetime(2024, 1, 1, tzinfo=datetime.timezone.utc),
             commit_subject='e2e-backup-subject',
         )
         cls.device_only = get_user_model().objects.create_user('e2e-device-only')

@@ -156,6 +156,6 @@ class TestBackupHealth(TestCase):
         self.assertEqual(health.pull_statuses(self.source), 2)
         quiet = BackupStatus.objects.get(device=self.quiet)
         self.assertEqual(quiet.last_status, 'success')
-        self.assertEqual(quiet.last_run, datetime.datetime(2026, 9, 18, 13, 13, 13, tzinfo=datetime.UTC))
+        self.assertEqual(quiet.last_run, datetime.datetime(2026, 9, 18, 13, 13, 13, tzinfo=datetime.timezone.utc))
         self.assertEqual(BackupStatus.objects.get(device=self.broken).last_status, 'no_connection')
         self.assertFalse(BackupStatus.objects.filter(device=self.gone).exists())

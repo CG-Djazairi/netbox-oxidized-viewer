@@ -59,7 +59,9 @@ class CachedGitBackend:
 
     def get_diff(self, filename: str, sha_old: str, sha_new: str) -> FileDiff:
         # Immutable per SHA pair, but it carries config text: keep it short.
-        key = self._cache_key('file_diff', self.backend.repo_path, filename, sha_old, sha_new)
+        # Pre-0.1.10 cached diffs lack existence flags and may have dropped
+        # lines beginning with diff header markers. Never reuse those values.
+        key = self._cache_key('file_diff_v2', self.backend.repo_path, filename, sha_old, sha_new)
         cached = cache.get(key, _MISS)
         if cached is not _MISS:
             return cached

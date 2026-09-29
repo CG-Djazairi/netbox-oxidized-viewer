@@ -5,8 +5,13 @@ from netbox.forms import NetBoxModelFilterSetForm, NetBoxModelForm
 from utilities.forms.fields import DynamicModelMultipleChoiceField, SlugField
 from utilities.forms.rendering import FieldSet
 
+from .constants import NOTE_MAX_LENGTH
 from .models import OxidizedInventory, OxidizedSource
 from .services.git_backend import GitBackend, InvalidRepository, RepositoryNotFound
+
+
+class CommitNoteForm(forms.Form):
+    message = forms.CharField(max_length=NOTE_MAX_LENGTH, strip=True)
 
 
 class OxidizedSourceForm(NetBoxModelForm):

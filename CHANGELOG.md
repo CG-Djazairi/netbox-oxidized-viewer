@@ -6,6 +6,61 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-09-29
+
+Fixes from an external code review of 0.1.9. No migration.
+
+### Security
+- **Read-only API tokens could write.** The `hook/`, `note/` and `sync/` endpoints set
+  their own DRF permission classes and so lost NetBox's `TokenPermissions`, the class
+  that enforces a token's *write enabled* flag. A read-only token belonging to a
+  sufficiently privileged user could report backup runs, add commit notes and trigger
+  Oxidized backups. The three endpoints now refuse (403) unsafe methods from a token
+  without write access; session logins are unaffected. **Oxidized's hook token must be
+  write enabled**, which the install guide now says.
+- *Reindex now* checked that the user held *some* change permission on sources, not one
+  whose constraints include the requested source. It now resolves the source through
+  the restricted queryset (404 when the constraints exclude it).
+- The install guide's hook example used `curl -k`, disabling certificate verification on
+  the request that carries the API token. Removed; the guide explains `--cacert` for an
+  internal CA and uses `--fail-with-body` so rejected reports surface in Oxidized's log.
+
+### Fixed
+- Concurrent backup reports now lock the device row while checking and updating
+  the latest run, so an older report cannot overwrite a newer one. This also
+  serializes creation of the first status row; equal timestamps still use arrival order.
+- SHA query parameters are validated before comparison redirects (bad values formerly
+  raised 500) and normalized to lowercase for configuration reads.
+- The UI note form now applies the same trimmed 2,000-character limit as the API.
+- Diff existence flags now reach the API and UI. Downloaded patches represent
+  creation/deletion using `/dev/null`, including Git mode headers for empty files.
+  The diff cache namespace changed to discard incompatible pre-upgrade values.
+- **Diffs dropped real changes.** The unified-diff parser skipped every line starting
+  with `---` or `+++` as a file header, so a removed line starting with `--` or an added
+  line starting with `++` (banners, comments) vanished from the diff view, the API and
+  the downloaded patch, whose hunk counts were then wrong. Only the two real headers are
+  skipped now.
+- A diff between two existing but empty files was reported as "file not found". The
+  result now carries `old_exists` / `new_exists` flags distinct from empty content.
+- **Python 3.10 crashed** on every commit listing and on Oxidized run timestamps
+  (`datetime.UTC` is 3.11+), although the package declared 3.10 support and CI only
+  ran 3.12. Replaced with `datetime.timezone.utc`; CI now runs Python 3.10 with
+  NetBox 4.3 and Ruff targets 3.10.
+- `POST …/note/` with a non-string `message` (e.g. `{"message": 123}`) answered 500.
+  The body is validated by a serializer: `message` must be a non-blank string of at most
+  2000 characters; anything else is a 400 with the reason.
+- Commit SHAs in URLs must now be full 40-character ids. The route accepted 7 to 40
+  characters, but the git layer never expanded abbreviations, so short ids only 404'd
+  one layer later.
+
+### Changed
+- Releases are gated on the CI workflow passing for the exact tagged commit.
+- Release tags must match both the package version and the plugin's declared version.
+- README and install guide document the known limits: the node name is the only link
+  between a device and its file (duplicate names or an edited node-name field can show
+  another device's configuration), history views are capped at 50/100 commits, search
+  covers the latest indexed configuration only.
+
 ## [0.1.9] - 2026-09-21
 
 ### Fixed
@@ -199,4 +254,3 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `content_disposition_header`, so device-controlled names can't break the header.
 - `test_git_backend.py` is now collected by the Django test runner (was pytest-only,
   silently skipped); the vacuous signal-loop test was replaced with a behavioral one.
-

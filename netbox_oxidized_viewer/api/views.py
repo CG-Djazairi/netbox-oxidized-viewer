@@ -1,14 +1,18 @@
 from dcim.models import Device
 from django.shortcuts import get_object_or_404
 from netbox.api.viewsets import NetBoxModelViewSet
+from rest_framework import serializers
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
 from rest_framework.routers import APIRootView
 from rest_framework.views import APIView
+from users.models import Token
 
 from .. import filters
+from ..constants import NOTE_MAX_LENGTH
+from ..converters import normalize_sha
 from ..health import find_device_for_node, record_run
 from ..inventory import build_inventory
 from ..models import ConfigCommitNote, OxidizedInventory, OxidizedSource
@@ -105,6 +109,41 @@ class CanViewConfigs(BasePermission):
         return request.user.has_perm(CONFIG_VIEW_PERMISSION)
 
 
+class TokenCanWrite(BasePermission):
+    """
+    Honour the token's *write enabled* flag on unsafe methods.
+
+    NetBox enforces it through TokenPermissions, its default DRF permission
+    class. A view that sets its own permission_classes loses that check, so
+    every custom endpoint that writes (hook, note, sync) lists this class.
+    Session logins have no token (request.auth is None) and are unaffected.
+    """
+
+    message = 'This token is not write-enabled.'
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        token = request.auth
+        if isinstance(token, Token):
+            return bool(token.write_enabled)
+        return True
+
+
+class _StrictCharField(serializers.CharField):
+    """A CharField that refuses numbers and structured values instead of
+    coercing them: a note is text, anything else is a client bug."""
+
+    def to_internal_value(self, data):
+        if not isinstance(data, str):
+            self.fail('invalid')
+        return super().to_internal_value(data)
+
+
+class CommitNoteSerializer(serializers.Serializer):
+    message = _StrictCharField(max_length=NOTE_MAX_LENGTH, allow_blank=False, trim_whitespace=True)
+
+
 class OxidizedHookView(APIView):
     """
     POST - Oxidized reports the outcome of a run (exec hook on node_success and
@@ -113,7 +152,7 @@ class OxidizedHookView(APIView):
     permission; the node must be a device the token's user may view.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, TokenCanWrite]
     # curl --data-urlencode is the only quoting-safe way to pass Oxidized's error
     # text from a shell hook; NetBox's API accepts JSON and multipart only by default.
     parser_classes = [JSONParser, FormParser, MultiPartParser]
@@ -196,7 +235,12 @@ class DeviceConfigAPIView(_DeviceGitAPIView):
             return Response({'detail': 'No Oxidized mapping for this device.'}, status=404)
 
         sha = request.query_params.get('sha')
-        if not sha:
+        if sha:
+            try:
+                sha = normalize_sha(sha)
+            except ValueError as exc:
+                return Response({'detail': str(exc)}, status=400)
+        else:
             latest = backend.get_latest_commit(filename)
             if not latest:
                 return Response({'detail': 'No configuration backups found.'}, status=404)
@@ -251,6 +295,8 @@ class DeviceDiffAPIView(_DeviceGitAPIView):
                 'filename': filename,
                 'old_sha': diff.old_sha,
                 'new_sha': diff.new_sha,
+                'old_exists': diff.old_exists,
+                'new_exists': diff.new_exists,
                 'hunks': [
                     {
                         'old_start': h.old_start,
@@ -283,7 +329,7 @@ class DeviceCommitNoteAPIView(APIView):
     Notes live in NetBox, not git.
     """
 
-    permission_classes = [IsAuthenticated, CanViewConfigs]
+    permission_classes = [IsAuthenticated, CanViewConfigs, TokenCanWrite]
 
     def _device(self, request, pk):
         return get_object_or_404(Device.objects.restrict(request.user, 'view'), pk=pk)
@@ -300,13 +346,13 @@ class DeviceCommitNoteAPIView(APIView):
                 {'detail': 'Requires the netbox_oxidized_viewer.add_configcommitnote permission.'},
                 status=403,
             )
-        message = (request.data.get('message') or '').strip()
-        if not message:
-            return Response({'detail': 'message is required.'}, status=400)
+        serializer = CommitNoteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
         note = ConfigCommitNote.objects.create(
             device=device,
             commit_sha=sha,
-            message=message,
+            message=serializer.validated_data['message'],
             created_by=request.user,
         )
         return Response(_note_to_dict(note), status=201)
@@ -316,7 +362,7 @@ class DeviceSyncAPIView(APIView):
     """POST — trigger an on-demand Oxidized backup for a device (needs the
     source's api_url). Read-only toward git."""
 
-    permission_classes = [IsAuthenticated, CanViewConfigs]
+    permission_classes = [IsAuthenticated, CanViewConfigs, TokenCanWrite]
 
     def post(self, request, pk):
         # Triggering a backup is a write on an external system: require the

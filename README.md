@@ -1,12 +1,12 @@
 # netbox-oxidized-viewer
 
-A NetBox plugin that surfaces [Oxidized](https://github.com/ytti/oxidized) configuration backups inside NetBox — with full history, side-by-side diffs, full-text search, and NetBox's native RBAC.
+A NetBox plugin that surfaces [Oxidized](https://github.com/ytti/oxidized) configuration backups inside NetBox — with commit history, side-by-side diffs, full-text search, and NetBox's native RBAC.
 
 Oxidized has no authentication. This plugin gates config access behind NetBox's object permissions: a user sees a device's configuration when they can view that device **and** hold the plugin's *view config snapshot* permission. See [Permissions](docs/install.md#permissions).
 
 ## Features
 
-- **Config History tab** injected into every device detail page — current config, last backup time, full commit timeline.
+- **Config History tab** injected into every device detail page — current config, backup status and the device's recent commits (the last 50; the API lists 100).
 - **Diff viewer** — side-by-side and inline, Prism.js syntax highlighting, commit picker, download patch.
 - **Full-text search** across all device configs via a Postgres GIN index. Sub-15 ms for selective terms at 1,000+ devices.
 - **Raw config download** — current config or any historical commit as a plain-text file.
@@ -26,6 +26,20 @@ Oxidized has no authentication. This plugin gates config access behind NetBox's 
 - The Oxidized bare git repository mounted read-only into the NetBox container, in a
   **flat** layout (one file per node at the top level — Oxidized's default; grouped
   `single_repo` subdirectory layouts are not matched)
+
+## Limitations
+
+- **The node name is the only link between a device and its file.** Two devices with
+  the same node name (NetBox names are unique per site and tenant, not globally) resolve
+  to the same file, and whoever can edit that field can repoint a device at another
+  device's configuration. Keep node names unique across the fleet, as Oxidized itself
+  needs, and treat device permissions as inventory scoping, not as a confidentiality
+  boundary between teams sharing one repository. Details in
+  [Permissions](docs/install.md#permissions).
+- **History is capped**, not paginated: the tab shows the last 50 commits, the diff
+  picker and the history API the last 100. Older commits stay reachable by SHA.
+- **Search covers the latest indexed configuration** of each device, not every revision.
+- One source per NetBox instance, flat repository layout only.
 
 ## Installation
 
